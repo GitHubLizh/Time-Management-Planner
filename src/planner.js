@@ -92,9 +92,13 @@ const CACHE_PREFIX="journalPlanner.v3.";
 let _gid=1;
 let state;
 let supabaseClient=null;
+let supabaseConfig=null;
 let currentUser=null;
 let syncTimer=null;
 let activationId=0;
+let dirty=false;        // 本地有未推送到云端的改动
+let pullBusy=false;
+let accessToken=null;   // 供 beforeunload 的 keepalive 请求同步取用
 function newGoalId(){return "g"+(_gid++);}
 function defaultState(){
   return {tasks:[],goals:{weekly:[],monthly:[],yearly:[],reviews:[]},view:"day",theme:"e",
@@ -111,19 +115,59 @@ function writeCache(){
   localStorage.setItem(cacheKey(currentUser.id),JSON.stringify(state));
 }
 function save(){
+  state.updatedAt=Date.now(); // 编辑时刻而非推送时刻：旧页面推送时时间戳更旧，会被远端挡住
+  dirty=true;
   writeCache();
   if(!currentUser||!supabaseClient)return;
   clearTimeout(syncTimer);
   syncTimer=setTimeout(()=>{saveRemote();},500);
 }
+async function fetchRemoteRow(user){
+  return await supabaseClient.from("planner_states").select("state").eq("user_id",user.id).maybeSingle();
+}
 async function saveRemote(){
   if(!currentUser||!supabaseClient)return false;
   const user=currentUser;
-  const row={user_id:user.id,state:JSON.parse(JSON.stringify(state))};
-  const {error}=await supabaseClient.from("planner_states").upsert(row,{onConflict:"user_id"});
+  if(!(state.updatedAt>0))state.updatedAt=Date.now();
+  const {data,error}=await fetchRemoteRow(user);
   if(user!==currentUser)return false;
-  if(error){setAuthMessage("云端保存失败，请检查网络后重试。");return false;}
+  const remoteAt=error?0:+((data&&data.state&&data.state.updatedAt)||0);
+  if(remoteAt>(state.updatedAt||0)){applyRemoteState(data.state);return false;} // 云端比本地新：以远端为准，放弃本次覆盖
+  const row={user_id:user.id,state:JSON.parse(JSON.stringify(state))};
+  const {error:upError}=await supabaseClient.from("planner_states").upsert(row,{onConflict:"user_id"});
+  if(user!==currentUser)return false;
+  if(upError){setAuthMessage("云端保存失败，请检查网络后重试。");return false;}
+  dirty=false;
   return true;
+}
+function applyRemoteState(s){
+  setState(s);writeCache();dirty=false;
+  if(document.body.classList.contains("auth-locked"))return;
+  renderAll();
+}
+function pullRemote(){
+  if(!currentUser||!supabaseClient||pullBusy||dirty)return;
+  if(isModalOpen()||bulkMode||document.body.classList.contains("dragging-task"))return; // 编辑/拖拽/批量选中进行中不打断，留给下一轮
+  pullBusy=true;
+  const user=currentUser;
+  fetchRemoteRow(user).then(({data,error})=>{
+    if(error||user!==currentUser||!data||!data.state)return;
+    if(+(data.state.updatedAt||0)>(state.updatedAt||0))applyRemoteState(data.state);
+  }).finally(()=>{pullBusy=false;});
+}
+function flushRemoteSync(){
+  if(!dirty||!currentUser||!supabaseConfig||!accessToken)return;
+  clearTimeout(syncTimer);
+  if(!(state.updatedAt>0))state.updatedAt=Date.now();
+  try{ // 常规 fetch 在页面卸载时会被浏览器取消，keepalive 请求能保证送达（请求体上限 64KB）
+    fetch(supabaseConfig.url+"/rest/v1/planner_states?on_conflict=user_id",{
+      method:"POST",
+      headers:{apikey:supabaseConfig.anonKey,Authorization:"Bearer "+accessToken,"Content-Type":"application/json",Prefer:"resolution=merge-duplicates,return:minimal"},
+      body:JSON.stringify([{user_id:currentUser.id,state:JSON.parse(JSON.stringify(state))}]),
+      keepalive:true
+    });
+    dirty=false;
+  }catch(e){}
 }
 function normalize(s){
   const g=s.goals||{};
@@ -285,26 +329,32 @@ async function signInWithOAuth(provider){
 async function activateSession(user){
   const request=++activationId;
   currentUser=user;
-  const {data,error}=await supabaseClient.from("planner_states").select("state").eq("user_id",user.id).maybeSingle();
+  const {data: sessData}=await supabaseClient.auth.getSession();
+  accessToken=sessData&&sessData.session&&sessData.session.access_token||null;
+  const {data,error}=await fetchRemoteRow(user);
   if(request!==activationId||currentUser!==user)return;
   if(error){currentUser=null;showAuthScreen("无法读取云端数据，请稍后重试。");return;}
   const nextState=data&&data.state||readState(cacheKey(user.id));
   setState(nextState||defaultState());
   writeCache();
+  dirty=!data; // 云端还没有这一行：把本机缓存（或空白状态）迁移上去；已有云端数据则不再回写，避免旧缓存覆盖
   initializePlanner();
   showPlanner(user);
-  await saveRemote();
+  if(dirty)await saveRemote();
 }
-async function bootstrapPlanner(client){
+async function bootstrapPlanner(client,config){
   supabaseClient=client;
+  supabaseConfig=config||null;
   bindAuthEvents();
+  window.addEventListener("beforeunload",flushRemoteSync);
   const {data,error}=await supabaseClient.auth.getSession();
   if(error){showAuthScreen(authErrorMessage(error));return;}
   if(data.session&&data.session.user)await activateSession(data.session.user);
   else showAuthScreen();
   supabaseClient.auth.onAuthStateChange((_event,session)=>{
+    accessToken=session&&session.access_token||null;
     if(session&&session.user){if(!currentUser||currentUser.id!==session.user.id)activateSession(session.user);}
-    else if(!session){currentUser=null;showAuthScreen();}
+    else if(!session){currentUser=null;accessToken=null;dirty=false;showAuthScreen();}
   });
 }
 function taskById(id){return state.tasks.find(t=>t.id===id);}
@@ -1628,6 +1678,7 @@ function renderAll(){
   $("#view-"+state.view).classList.add("active");
   RENDER[state.view]();
 }
+function isModalOpen(){return $("#taskModal").classList.contains("show")||$("#goalModal").classList.contains("show");}
 function initializePlanner(){
   $("#tType").innerHTML=TYPES.map(t=>`<option>${t}</option>`).join("");
   $("#gLevel").innerHTML=GOAL_LEVELS.map(([k,label])=>`<option value="${k}">${label}目标</option>`).join("");
@@ -1636,7 +1687,9 @@ function initializePlanner(){
   dateWatcherStarted=true;
   setInterval(rollDate,1000);
   initHolidays(); // 后台同步最新官方节假日数据，失败时保留内置兜底
-  document.addEventListener("visibilitychange",()=>{if(!document.hidden)rollDate();});
+  document.addEventListener("visibilitychange",()=>{if(!document.hidden){rollDate();pullRemote();}}); // 切回标签页时主动拉云端，多设备不再停留在旧内容
+  window.addEventListener("focus",pullRemote);
+  setInterval(()=>{if(!document.hidden)pullRemote();},60000); // 常开页面的兜底轮询
   window.addEventListener("resize",()=>{if(state.view==="year")drawYearChart(parseD(state.selDate).getFullYear(),statsPool(filteredTasks()));});
 }
 window.bootstrapPlanner=bootstrapPlanner;

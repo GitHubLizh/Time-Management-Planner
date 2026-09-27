@@ -11,5 +11,5 @@ if (!url || !anonKey) {
     element.disabled = true;
   });
 } else {
-  window.bootstrapPlanner(createClient(url, anonKey));
+  window.bootstrapPlanner(createClient(url, anonKey), { url, anonKey });
 }
