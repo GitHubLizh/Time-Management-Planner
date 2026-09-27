@@ -1,0 +1,19 @@
+{
+  "name": "journal-planner",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node _recur_test.js src/planner.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "latest",
+    "lunar-javascript": "^1.7.7",
+    "pinyin-pro": "3.29.4"
+  },
+  "devDependencies": {
+    "vite": "latest"
+  }
+}

@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.env
+.env.local
+.env.*
+!.env.example
+
+# Qoder 生成缓存
+.qoder/
+
+# 开发期 UI 预览截图
+*-preview.png
+
+# 日志与系统文件
+*.log
+.DS_Store
+Thumbs.db
