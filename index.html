@@ -427,7 +427,8 @@ table.data input[type=range]{width:90px;accent-color:var(--accent)}
 .review-item p{color:var(--muted);font-size:.72rem;margin-top:4px;line-height:1.6}
 
 /* 看板 */
-.kanban{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;align-items:start}
+/* 不写 align-items:start：列按最高那列等高，整条纵向带都是拖拽落点 */
+.kanban{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
 .kanban.type-mode{grid-template-columns:repeat(4,1fr)}
 @media(max-width:900px){.kanban,.kanban.type-mode{display:flex;overflow-x:auto}}
 .kanban-col{border:1.5px solid var(--line);border-radius:var(--radius);background:var(--cream);padding:10px;min-height:200px;min-width:230px;flex:1}
