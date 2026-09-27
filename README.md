@@ -100,6 +100,7 @@ src/planner.js                  全部业务逻辑（视图渲染、重复展开
 supabase/migrations/            建表 + RLS 策略
 _recur_test.js / _bulk_test.js  桩 DOM 断言脚本
 .env.example                    环境变量模板
+.手帐风时间管理台.qoder.site     Qoder Sites 发布清单（见下）
 ```
 
 ## 构建与部署
@@ -109,6 +110,8 @@ npm run build     # 产出 dist/，纯静态资源
 npm run preview   # 本地预览构建结果
 ```
 
-产物是静态站，任何能托管 `dist/` 并注入 `VITE_*` 构建时变量的平台都可以部署。本项目当前通过 Qoder Sites 发布（描述文件见 `.手帐风时间管理台.qoder.site`）。
+产物是静态站，任何能托管 `dist/` 并注入 `VITE_*` 构建时变量的平台都可以部署。本项目当前通过 Qoder Sites 发布。
+
+`.手帐风时间管理台.qoder.site` 是 Qoder Sites 的**发布清单**，不是源码副本：`projectId` / `siteId` / `deploymentId` / `releaseId` 记下发布目标，Qoder Sites 工具靠它把本地目录对应到线上站点（`get_local_context` 读的就是这份）；`artifactSha256` / `indexSha256` 与内嵌的 base64 页面记下发出去的到底是哪一版产物——注意内嵌的是 `dist/index.html` 的逐字节副本，与源码 `index.html` 本来就不会相等。由于 `dist/` 不入版本库，这份清单是仓库里唯一留存"线上实际跑的页面"的地方，故意保留跟踪状态。
 
 注意 `VITE_*` 变量在**构建时**内联进产物，改环境需要重新构建。
