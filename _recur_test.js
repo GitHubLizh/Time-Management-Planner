@@ -448,6 +448,9 @@ F("saveTask")(null,{title:"新建",type:"工作项目",priority:3,status:"done",
 const fresh=F("state").tasks[F("state").tasks.length-1];
 eq("新建走 mk 分配 id 并追加在末尾",/^t\d+$/.test(fresh.id)&&F("state").tasks.length===4,true);
 eq("doneAt 由 syncDoneAt 补写",fresh.doneAt,"2026-09-18");
+eq("草稿规则：循环 + done 降级为 todo",F("applyTaskDraftRules")({recur:{freq:"daily",days:[],mday:1},status:"done",progress:100}).status,"todo");
+eq("草稿规则：非循环 done 补齐 progress",F("applyTaskDraftRules")({recur:null,status:"done",progress:40}).progress,100);
+eq("草稿规则：doing 不动 progress",F("applyTaskDraftRules")({recur:null,status:"doing",progress:40}).progress,40);
 eq("progress 属表单口径，core 不代为改写",fresh.progress,0);
 
 resetTasks();

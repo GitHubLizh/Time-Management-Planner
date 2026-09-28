@@ -10,7 +10,7 @@ import { filteredTasks, tasksOn, splitId, isOverdue, overdueDays, overdueList, s
   SLOT_TIMES, scheduleGrid, dayGroups, weekDaysOf, miniCalGrid, weekColumns, dailyCounts, monthTasksOf, monthGrid, progressWeeks, monthSpanFilter, ganttCells, yearSplit, yearMonthDays, monthSlice, monthlyRates, kanbanSplit } from "./core/selectors.js";
 import { goalsOf, goalLevel, goalById, goalTasks, goalVisibleThisWeek, taskGoal, goalProgress } from "./core/goals.js";
 import { authErrorMessage } from "./core/auth.js";
-import { toggleTaskDone, duplicateTask, deleteTask as deleteTaskData, bulkToggleDone, bulkDelete, saveTask, saveGoal, deleteGoal as deleteGoalData, moveGoal, applyDrop, applyKanbanDrop } from "./core/mutations.js";
+import { toggleTaskDone, applyTaskDraftRules, duplicateTask, deleteTask as deleteTaskData, bulkToggleDone, bulkDelete, saveTask, saveGoal, deleteGoal as deleteGoalData, moveGoal, applyDrop, applyKanbanDrop } from "./core/mutations.js";
 import { remoteUpdatedAt, localUpdatedAt, ensureUpdatedAt, decidePush, decidePull, buildPushPayload, decideInitialSource } from "./core/sync.js";
 
 /* 拼音实现由壳注入：core 不认识 pinyin-pro，小程序可以换成别的或不注入（首字母降级为不匹配） */
@@ -1139,9 +1139,7 @@ function formTaskData(){
   if(!data.title){alert("请填写任务标题");return null;}
   if(data.end<data.start){alert("截止日期不能早于开始日期");return null;}
   if(recur&&recur.freq==="weekly"&&!recur.days.length){alert("每周重复至少要勾选一个星期日");return null;}
-  if(recur&&data.status==="done")data.status="todo"; // 循环任务没有「整条已完成」这个状态
-  if(!recur&&data.status==="done")data.progress=100;
-  return data;
+  return applyTaskDraftRules(data); // 循环/完成与 progress 的联动口径在 core，桌面与移动共用
 }
 $("#tSave").addEventListener("click",()=>{
   const data=formTaskData();if(!data)return;

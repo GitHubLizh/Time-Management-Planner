@@ -61,6 +61,7 @@ function metrics(tab) {
   };
 }
 window.__report = () => ["today", "goals", "board", "me"].map(metrics);
+window.__app = app;   // 探针用：驱动真实 click 以验证 FAB / 编辑器链路
 </script>
 </body>
 </html>

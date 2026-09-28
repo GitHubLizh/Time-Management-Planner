@@ -69,6 +69,13 @@ export function bulkDelete(keys){
 }
 
 /* ---------- 新增 / 编辑任务 ---------- */
+/* 表单草稿的业务口径，桌面与移动共用（校验与提示文案仍归各壳）：
+   循环任务没有"整条已完成"这个状态；非循环勾选完成即视为 100%。 */
+export function applyTaskDraftRules(data){
+  if(data.recur&&data.status==="done")data.status="todo";
+  if(!data.recur&&data.status==="done")data.progress=100;
+  return data;
+}
 export function saveTask(id,data){
   let t;
   if(id){t=taskById(id);Object.assign(t,data);}

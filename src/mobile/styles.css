@@ -17,6 +17,8 @@ body.theme-i{
   --grid-line:#dde1ea; --banner-bg:#2c3140; --banner-fg:#f4f5fa; --shadow:0 1px 3px rgba(50,60,90,.10);
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+/* class 选择器会压过 UA 的 [hidden]{display:none}，与桌面同样需要强制一条 */
+[hidden]{display:none!important}
 html{font-size:16px}                       /* 桌面是 15px；小屏一上来就更小是"字太小"的直接来源 */
 body{
   font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
@@ -132,3 +134,21 @@ a{color:var(--accent)}
   .m-detail{position:sticky;top:70px}
   .m-sheet{left:auto;right:16px;bottom:calc(var(--tab-h) + 16px);max-width:420px;border-radius:16px;border:1.5px solid var(--ink)}
 }
+/* ---------- 编辑器面板内的小结构 ---------- */
+.m-two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.m-field input[type=range]{padding:0;min-height:32px;border:none;background:transparent;accent-color:var(--accent)}
+.m-field textarea{width:100%;min-height:64px;padding:12px 14px;border:1.5px solid var(--line);border-radius:10px;background:var(--card);font-size:16px;resize:vertical;font-family:inherit}
+.m-field select{width:100%;min-height:48px;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;background:var(--card);font-size:16px}
+.m-days{display:flex;gap:6px}
+.m-days button{flex:1;min-height:44px;border:1.5px solid var(--line);border-radius:9px;background:var(--card);font-size:.82rem}
+.m-days button.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:700}
+.m-sheetActs{display:flex;gap:10px;margin-top:18px}
+.m-sheetActs .m-btn{flex:1}
+.m-btn.danger{background:var(--overdue);border-color:var(--overdue);color:#fff}
+.m-toast{
+  position:fixed;left:14px;right:14px;bottom:calc(var(--tab-h) + 14px + env(safe-area-inset-bottom));z-index:45;
+  background:var(--banner-bg);color:var(--banner-fg);border-radius:12px;padding:13px 16px;font-size:.86rem;
+  display:none;align-items:center;gap:10px;box-shadow:0 8px 24px rgba(30,25,20,.3);
+}
+.m-toast.show{display:flex}
+.m-toast::after{content:"撤销";margin-left:auto;color:var(--accent);font-weight:700;font-size:.82rem}

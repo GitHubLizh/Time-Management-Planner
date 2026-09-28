@@ -4,6 +4,7 @@ import { state, setState } from "../core/schema.js";
 import { setPinyinImpl } from "../core/filters.js";
 import { pinyin } from "pinyin-pro";
 import { TODAY_TABS } from "./tabs.js";
+import { openTaskEditor } from "./editor.js";
 import { renderToday } from "./views/today.js";
 import { renderGoals } from "./views/goals.js";
 import { renderBoard } from "./views/board.js";
@@ -24,6 +25,16 @@ export function createApp(mount, session, initial) {
     /* 写操作后统一走这里：core mutations 已改过 state，壳只负责持久化 + 重绘 */
     commit() { session.commit(state); app.render(); },
     reload(next) { setState(next); app.render(); }, // 会话重新激活时换一份状态，不重建壳
+    openTask(key) { return openTaskEditor(app, key); },
+    toast(msg, undo) {
+      const bar = mount.querySelector(".m-toast");
+      bar.textContent = msg;
+      bar.classList.add("show");
+      bar.onclick = e => { e.stopPropagation(); if (undo) { undo(); } hide(); };
+      clearTimeout(app._toastT);
+      app._toastT = setTimeout(hide, 6000);
+      function hide() { clearTimeout(app._toastT); bar.classList.remove("show"); bar.onclick = null; }
+    },
     sheet(title, html, bind) {
       const mask = mount.querySelector(".m-sheet-mask"), box = mount.querySelector(".m-sheet");
       box.innerHTML = `<div class="grab"></div><h3>${title}</h3>${html}`;
@@ -49,12 +60,14 @@ export function createApp(mount, session, initial) {
       <div class="right"><button class="m-nav" id="mTheme" title="切换主题">◐</button></div>
     </header>
     <main class="m-body"></main>
-    <button class="m-fab" id="mAdd" hidden aria-label="新增任务">+</button>
+    <button class="m-fab" id="mAdd" aria-label="新增任务">+</button>
     <nav class="m-tabs">${TODAY_TABS.map(t => `<button data-tab="${t.key}">${t.icon}<span>${t.label}</span></button>`).join("")}</nav>
     <div class="m-sheet-mask"></div>
-    <div class="m-sheet" role="dialog" aria-modal="true"></div>`;
+    <div class="m-sheet" role="dialog" aria-modal="true"></div>
+    <div class="m-toast" role="status"></div>`;
 
   mount.querySelectorAll(".m-tabs button").forEach(b => b.addEventListener("click", () => app.navigate(b.dataset.tab)));
+  mount.querySelector("#mAdd").addEventListener("click", () => app.openTask(null));
   mount.querySelector("#mTheme").addEventListener("click", () => {
     state.theme = state.theme === "e" ? "i" : "e";
     app.commit();
