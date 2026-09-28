@@ -4,21 +4,15 @@ import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
 import { pinyin } from "pinyin-pro";
-import * as coreDates from "./src/core/dates.js";
 import * as coreClock from "./src/core/clock.js";
-import * as coreConstants from "./src/core/constants.js";
-import * as coreHolidays from "./src/core/holidays.js";
-import * as coreFilters from "./src/core/filters.js";
-import * as coreRecur from "./src/core/recur.js";
-import * as coreSchema from "./src/core/schema.js";
-import * as coreSelectors from "./src/core/selectors.js";
-import * as coreGoals from "./src/core/goals.js";
+import { seedFromCoreImports } from "./_core_seed.mjs";
 
 const plannerPath=process.argv[2];
 const html=fs.readFileSync(process.argv[3]||path.resolve(path.dirname(plannerPath),"..","index.html"),"utf8");
 const src=fs.readFileSync(plannerPath,"utf8");
-// 剥掉 import 块（含跨行写法）：这些符号下面直接挂到 vm 全局，vm 里的自由标识符就能解析到 core 实现
+// 剥掉 import 块（含跨行写法）：这些符号下面按壳的 import 表（含别名）挂到 vm 全局
 const executableSrc=src.replace(/^[ \t]*import[\s\S]*?from\s+"[^"]+";[ \t]*\n/gm, "");
+const seed=await seedFromCoreImports(src);
 
 // core 的时钟锚到夹具那天：core 是在 Node 里真实加载的，拿不到 vm 的假 Date
 coreClock.setToday("2026-09-18");
@@ -52,21 +46,19 @@ class TestDate extends Date{
   constructor(...args){super(...(args.length?args:[2026,8,18,12]));}
   static now(){return new Date(2026,8,18,12).getTime();}
 }
-const ctx=vm.createContext({
+const sandbox={
   console,Date:TestDate,setTimeout,clearTimeout,setInterval:()=>0,clearInterval(){},
   localStorage:{getItem:k=>(k in store?store[k]:null),setItem:(k,v)=>{store[k]=String(v)},removeItem:k=>{delete store[k]}},
   document:{body:getEl("body"),querySelector:getEl,querySelectorAll:()=>[],addEventListener(){},createElement:()=>makeEl(),hidden:false},
   window:{addEventListener(){},devicePixelRatio:1},
   getComputedStyle:()=>({getPropertyValue:()=>"#000"}),
-  alert:m=>{ctx.__alert=m},confirm:()=>true,
-  // core 导出挂进 vm（含 planner 里用的别名 TODAY）
-  ...coreDates,...coreConstants,...coreHolidays,...coreFilters,...coreRecur,...coreSelectors,...coreGoals,
-  ...coreSchema, TODAY:coreClock.today, pinyin,
-});
-/* state 是 core 里的可变单例，ESM live binding 不会同步进 vm 全局，所以包一层：
-   每次 setState 后把引用重新刷进 ctx，壳与 core 才看到同一个对象 */
-const coreSetState=coreSchema.setState;
-ctx.setState=(v)=>{coreSetState(v);ctx.state=coreSchema.state;};
+  pinyin,
+};
+sandbox.TODAY=coreClock.today; // 同一对象，就地推进，壳与 core 看到同一个"今天"
+/* 用 defineProperties 而不是展开：展开会把 getter 求值成快照，state 的重新赋值就丢了 */
+Object.defineProperties(sandbox,Object.getOwnPropertyDescriptors(seed));
+const ctx=vm.createContext(sandbox);
+ctx.alert=m=>{ctx.__alert=m};ctx.confirm=()=>true;
 ctx.globalThis=ctx;
 try{vm.runInContext(executableSrc,ctx,{filename:"planner.js"})}catch(e){console.log("[setup] 顶层抛错（渲染桩不全不影响取函数）:",e.message)}
 vm.runInContext(`setState(${JSON.stringify(initialState)})`,ctx);
@@ -396,6 +388,110 @@ vm.runInContext('state.filters.keyword="pb"',ctx);
 eq("修改标题后新首字母立即生效",F("filteredTasks")().map(t=>t.id),["t4"]);
 renamedTask.title=originalTitle;
 F("setState")(initialState);
+
+/* ================= 写操作（core/mutations） =================
+   移动壳与小程序将直接调用这一层，所以钉住"改了什么"和"撤销能否精确还原" */
+console.log("\n== 写操作与撤销 ==");
+const baseTasks=()=>[
+  {id:"a1",title:"任务一",type:"工作项目",priority:1,status:"todo",start:"2026-09-01",end:"2026-09-18",progress:0,plannedTime:10,actualTime:0,course:false,room:"",teacher:"",dow:null,timeSlot:"",goalId:"g1",note:"",doneAt:"",recur:null,doneOn:{}},
+  {id:"a2",title:"任务二",type:"生活居家",priority:2,status:"done",start:"2026-09-01",end:"2026-09-10",progress:100,plannedTime:10,actualTime:5,course:false,room:"",teacher:"",dow:null,timeSlot:"",goalId:"",note:"",doneAt:"2026-09-09",recur:null,doneOn:{}},
+  {id:"a3",title:"每日喝水",type:"饮食健康",priority:2,status:"todo",start:"2026-09-01",end:"2026-09-30",progress:0,plannedTime:5,actualTime:0,course:false,room:"",teacher:"",dow:null,timeSlot:"",goalId:"g1",note:"",doneAt:"",recur:{freq:"daily",days:[],mday:1},doneOn:{"2026-09-17":"2026-09-17"}},
+];
+const resetTasks=()=>F("setState")({tasks:baseTasks(),
+  goals:{weekly:[{id:"g1",title:"本周交付"}],monthly:[],yearly:[],reviews:[]},view:"day",theme:"e",
+  filters:{keyword:"",year:"",month:"",prio:"",status:"",type:"",slot:""},selDate:"2026-09-18",
+  kanbanMode:"status",kanbanDragHintSeen:false,onlyOverdue:false,onlyLate:false});
+
+resetTasks();
+F("toggleTaskDone")(F("taskById")("a1"));
+eq("toggleTaskDone 完成即 progress=100 且写 doneAt",[F("taskById")("a1").status,F("taskById")("a1").progress,F("taskById")("a1").doneAt],["done",100,"2026-09-18"]);
+F("toggleTaskDone")(F("taskById")("a1"));
+eq("toggleTaskDone 取消回 todo 且 progress 归零、doneAt 清空",[F("taskById")("a1").status,F("taskById")("a1").progress,F("taskById")("a1").doneAt],["todo",0,""]);
+
+resetTasks();
+const dup=F("duplicateTask")(F("taskById")("a2"));
+eq("副本紧跟源任务之后（其后各条顺移）",F("state").tasks.map(t=>t.id),["a1","a2",dup.id,"a3"]);
+eq("副本内容照抄但状态归零",[dup.title,dup.start,dup.end,dup.status,dup.progress,dup.doneAt,dup.actualTime],["任务二","2026-09-01","2026-09-10","todo",0,"",0]);
+eq("副本不复用源 id",dup.id!=="a2",true);
+
+resetTasks();
+const del=F("deleteTask")("a2");
+eq("deleteTask 后序列",F("state").tasks.map(t=>t.id),["a1","a3"]);
+eq("deleteTask 返回标题供浮条文案",del.title,"任务二");
+del.undo();
+eq("撤销按原索引插回",F("state").tasks.map(t=>t.id),["a1","a2","a3"]);
+eq("deleteTask 对不存在的 id 返回 null",F("deleteTask")("nope"),null);
+resetTasks();
+eq("循环任务删除返回打卡条数与循环标记",((r)=>[r.isRecur,r.occCount])(F("deleteTask")("a3")),[true,1]);
+
+resetTasks();
+F("toggleTaskDone")(F("taskById")("a1")); // 先做成 done，批量再把它翻回去
+const bd=F("bulkToggleDone")(["a1","a3@2026-09-18"]);
+eq("批量切换影响单次与循环当天",[F("taskById")("a1").status,F("taskById")("a3").doneOn["2026-09-18"]],["todo","2026-09-18"]);
+eq("批量切换返回条数",bd.count,2);
+bd.undo();
+eq("批量撤销恢复单次状态",F("taskById")("a1").status,"done");
+eq("批量撤销删掉本次新增的打卡",!!F("taskById")("a3").doneOn["2026-09-18"],false);
+eq("批量撤销不误伤原有打卡",Object.keys(F("taskById")("a3").doneOn),["2026-09-17"]);
+
+resetTasks();
+const bdel=F("bulkDelete")(["a1","a2","a3@2026-09-18"]); // 实例 id 归并回定义
+eq("批量删除条数",bdel.count,3);
+eq("批量删除后为空",F("state").tasks.length,0);
+bdel.undo();
+eq("批量撤销按原次序还原",F("state").tasks.map(t=>t.id),["a1","a2","a3"]);
+
+resetTasks();
+F("saveTask")("a3",{recur:null});
+eq("取消循环时丢掉打卡痕迹",F("taskById")("a3").doneOn,{});
+F("saveTask")(null,{title:"新建",type:"工作项目",priority:3,status:"done",start:"2026-09-20",end:"2026-09-21"});
+const fresh=F("state").tasks[F("state").tasks.length-1];
+eq("新建走 mk 分配 id 并追加在末尾",/^t\d+$/.test(fresh.id)&&F("state").tasks.length===4,true);
+eq("doneAt 由 syncDoneAt 补写",fresh.doneAt,"2026-09-18");
+eq("progress 属表单口径，core 不代为改写",fresh.progress,0);
+
+resetTasks();
+const rLink=F("applyDrop")({kind:"task",id:"a1"},{type:"link",gid:"g2"});
+eq("link 落点写 goalId 并要求展开",[F("taskById")("a1").goalId,rLink.autoExpandGid,rLink.applied],["g2","g2",true]);
+eq("goal 拖到 link 位置不生效（applied=false，壳据此不持久化不重绘）",F("applyDrop")({kind:"goal",id:"g1"},{type:"link",gid:"g2"}).applied,false);
+const rUnlink=F("applyDrop")({kind:"task",id:"a1"},{type:"unlink"});
+eq("unlink 落点清空 goalId",[F("taskById")("a1").goalId,rUnlink.applied],["",true]);
+eq("item 为 null 时不落任何东西",F("applyDrop")(null,{type:"link",gid:"g1"}).applied,false);
+
+resetTasks();
+F("applyDrop")({kind:"task",id:"a3"},{type:"move",ref:"a1",after:false,gid:"g1"});
+eq("move 落点按位置插回",F("state").tasks.map(t=>t.id),["a3","a1","a2"]);
+resetTasks();
+F("applyDrop")({kind:"task",id:"a1"},{type:"move",ref:"a2",after:true,gid:""});
+eq("move 到参照之后",F("state").tasks.map(t=>t.id),["a2","a1","a3"]);
+
+resetTasks();
+(()=>{const t=F("taskById")("a1");F("applyKanbanDrop")(t,"done","status",true);})();
+eq("看板改到 done 联动 progress",[F("taskById")("a1").status,F("taskById")("a1").progress],["done",100]);
+eq("跨列移动才标记提示已见",(()=>{resetTasks();const t=F("taskById")("a1");return F("applyKanbanDrop")(t,"done","status",true).hintSeen;})(),true);
+(()=>{const t=F("taskById")("a1");F("applyKanbanDrop")(t,"done","status",false);F("applyKanbanDrop")(t,"todo","status",false);})();
+eq("done 退回 todo 时 progress 归零",F("taskById")("a1").progress,0);
+(()=>{resetTasks();const t=F("taskById")("a1");F("applyKanbanDrop")(t,"学习成长","type",true);})();
+eq("按类型分列时改的是 type",[F("taskById")("a1").type,F("taskById")("a1").status],["学习成长","todo"]);
+
+resetTasks();
+F("saveGoal")(null,"新周目标","weekly");
+F("saveGoal")("g1","改名后","monthly");
+eq("目标改名与换档",[F("goalById")("g1").title,F("goalLevel")("g1")],["改名后","monthly"]);
+eq("换档后原档位只剩新加的",[F("goalsOf")("weekly").map(g=>g.title),F("goalsOf")("monthly").map(g=>g.title)],[["新周目标"],["改名后"]]);
+const mg=F("moveGoal")("g1","gX","monthly",false);
+eq("moveGoal 的 ref 不存在时追加到目标档位（跨卡即改档）",F("goalsOf")("monthly").map(g=>g.id),["g1"]);
+resetTasks();
+const gdel=F("deleteGoal")("g1");
+eq("删目标同时解除关联",F("taskById")("a1").goalId,"");
+eq("删目标返回受影响条数（a1 与 a3 都挂在 g1 上）",gdel.affectedCount,2);
+gdel.undo();
+eq("撤销恢复目标",F("goalsOf")("weekly").map(g=>g.id),["g1"]);
+eq("撤销回填空关联",F("taskById")("a1").goalId,"g1");
+resetTasks();
+F("taskById")("a1").goalId="g9"; // 撤销前已被手动改走
+F("deleteGoal")("g1").undo();
+eq("撤销不覆盖手动改走的关联",F("taskById")("a1").goalId,"g9");
 
 console.log("\n== id 选择器对账（桩 DOM 不会因 id 不存在而抛错，只能靠静态比对）==");
 {

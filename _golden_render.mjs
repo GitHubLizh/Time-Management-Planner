@@ -5,20 +5,15 @@ import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
 import { pinyin } from "pinyin-pro";
-import * as coreDates from "./src/core/dates.js";
 import * as coreClock from "./src/core/clock.js";
-import * as coreConstants from "./src/core/constants.js";
-import * as coreHolidays from "./src/core/holidays.js";
-import * as coreFilters from "./src/core/filters.js";
-import * as coreRecur from "./src/core/recur.js";
-import * as coreSchema from "./src/core/schema.js";
-import * as coreSelectors from "./src/core/selectors.js";
-import * as coreGoals from "./src/core/goals.js";
+import { seedFromCoreImports } from "./_core_seed.mjs";
 
 const out = process.argv[2] || "/tmp/golden.json";
 const src = fs.readFileSync("src/planner.js", "utf8");
 // 剥掉 import 块（含跨行写法）：这些符号下面直接挂进 vm 全局
 const executableSrc = src.replace(/^[ \t]*import[\s\S]*?from\s+"[^"]+";[ \t]*\n/gm, "");
+// 按壳的 import 表（含别名）准备 core 符号种子
+const seed = await seedFromCoreImports(src);
 coreClock.setToday("2026-09-18");
 
 function makeEl() {
@@ -39,18 +34,18 @@ class TestDate extends Date {
 }
 const store = {}, els = {};
 const getEl = s => els[s] || (els[s] = makeEl());
-const ctx = vm.createContext({
+const sandbox = {
   console, Date:TestDate, setTimeout, clearTimeout, setInterval:()=>0, clearInterval(){},
   localStorage:{ getItem:k=>(k in store?store[k]:null), setItem:(k,v)=>{store[k]=String(v)}, removeItem:k=>{delete store[k]} },
   document:{ body:getEl("body"), querySelector:getEl, querySelectorAll:()=>[], addEventListener(){}, createElement:()=>makeEl(), hidden:false },
   window:{ addEventListener(){}, devicePixelRatio:1 },
   getComputedStyle:()=>({ getPropertyValue:()=>"#000" }),
-  alert(){}, confirm:()=>true,
-  ...coreDates, ...coreConstants, ...coreHolidays, ...coreFilters, ...coreRecur, ...coreSelectors, ...coreGoals,
-  ...coreSchema, TODAY:coreClock.today, pinyin,
-});
-const coreSetState = coreSchema.setState;
-ctx.setState = v => { coreSetState(v); ctx.state = coreSchema.state; };
+  pinyin, alert(){}, confirm:()=>true,
+};
+sandbox.TODAY = coreClock.today; // 同一对象就地推进
+/* 保留 getter：展开运算会把 seed 的访问器求值成快照，state 被 setState 重新赋值后壳就读不到了 */
+Object.defineProperties(sandbox, Object.getOwnPropertyDescriptors(seed));
+const ctx = vm.createContext(sandbox);
 vm.runInContext(executableSrc, ctx, { filename:"planner.js" });
 
 // 覆盖各分支的夹具：循环+单次+课程、逾期、迟完、目标带成员、跨周跨月、多类型

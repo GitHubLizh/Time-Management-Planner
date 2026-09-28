@@ -5,10 +5,11 @@ import { today as TODAY } from "./core/clock.js";
 import { CN_HOLIDAY, HOLIDAY_SRC, SOLAR_FESTIVALS, refreshHolidayYear, lunarOf } from "./core/holidays.js";
 import { setPinyinImpl } from "./core/filters.js";
 import { recurText, occurrencesBetween, occDone, toggleOcc, recurDoneIn, recurStreak, statsPool } from "./core/recur.js";
-import { state, setState, defaultState, mk, newGoalId, taskById } from "./core/schema.js";
+import { state, setState, defaultState, mk, taskById } from "./core/schema.js";
 import { filteredTasks, tasksOn, splitId, isOverdue, overdueDays, overdueList, syncDoneAt, isLateDone, lateDays, lateList, statsOf, hasActiveFilter,
   SLOT_TIMES, scheduleGrid, dayGroups, weekDaysOf, miniCalGrid, weekColumns, dailyCounts, monthTasksOf, monthGrid, progressWeeks, monthSpanFilter, ganttCells, yearSplit, yearMonthDays, monthSlice, monthlyRates, kanbanSplit } from "./core/selectors.js";
 import { goalsOf, goalLevel, goalById, goalTasks, goalVisibleThisWeek, taskGoal, goalProgress } from "./core/goals.js";
+import { toggleTaskDone, duplicateTask, deleteTask as deleteTaskData, bulkToggleDone, bulkDelete, saveTask, saveGoal, deleteGoal as deleteGoalData, moveGoal, applyDrop, applyKanbanDrop } from "./core/mutations.js";
 
 /* 拼音实现由壳注入：core 不认识 pinyin-pro，小程序可以换成别的或不注入（首字母降级为不匹配） */
 setPinyinImpl(pinyin);
@@ -517,24 +518,12 @@ function bindTaskEvents(root){
     const act=btn.dataset.act;
     if(act==="bulk-check"){bulkToggleKey(item.dataset.id);return;} // 复选框已被浏览器原生翻转，只同步集合，不重绘
     if(act==="toggle"){
-      if(ds)toggleOcc(t,ds);
-      else{
-        t.status=t.status==="done"?"todo":"done";
-        t.progress=t.status==="done"?100:0;
-        syncDoneAt(t);
-      }
+      if(ds)toggleOcc(t,ds);else toggleTaskDone(t);
       save();renderAll();
     }else if(act==="edit"){openModal(t.id);}
-    else if(act==="copy"){duplicateTask(t);}
+    else if(act==="copy"){duplicateTask(t);save();buildFilters();renderAll();}
     else if(act==="del"){deleteTask(t.id);}
   });
-}
-/* ---------- 复制任务：内容照抄（含起止日期），状态/进度/完成日/实际耗时归零，紧跟源任务之后 ---------- */
-function duplicateTask(src){
-  const t=mk(Object.assign({},src,{status:"todo",progress:0,doneAt:"",actualTime:0,doneOn:{}})); // 副本的循环规则照抄，但打卡记录从零开始
-  const i=state.tasks.findIndex(x=>x.id===src.id);
-  if(i>=0)state.tasks.splice(i+1,0,t);else state.tasks.push(t);
-  save();buildFilters();renderAll();
 }
 /* ---------- 删除撤销：删除立即生效，底部浮条 6 秒内可撤销；期间再删则旧记录作废 ---------- */
 let pendingUndo=null,undoTimer=null;
@@ -548,13 +537,10 @@ function showUndo(msg,fn){
 function hideUndo(){clearTimeout(undoTimer);pendingUndo=null;$("#undoBar").style.display="none";}
 $("#undoBtn").addEventListener("click",()=>{const fn=pendingUndo;hideUndo();if(fn)fn();});
 function deleteTask(id){
-  const t=taskById(id);if(!t)return;
-  const i=state.tasks.findIndex(x=>x.id===id);
-  const snap=JSON.parse(JSON.stringify(t));
-  const n=Object.keys(snap.doneOn||{}).length;
-  state.tasks=state.tasks.filter(x=>x.id!==id);save();renderAll();
-  showUndo(`已删除任务「${snap.title}」${snap.recur&&n?`（含 ${n} 条打卡记录）`:""}`,()=>{
-    state.tasks.splice(Math.min(i,state.tasks.length),0,snap);save();renderAll();
+  const r=deleteTaskData(id);if(!r)return; // core 已完成删除并交出撤销数据
+  save();renderAll();
+  showUndo(`已删除任务「${r.title}」${r.isRecur&&r.occCount?`（含 ${r.occCount} 条打卡记录）`:""}`,()=>{
+    r.undo();save();renderAll();
   });
 }
 /* ---------- 批量选择：仅日视图三张列表。bulkMode/bulkSel 是临时态，不进 state、不持久化 ---------- */
@@ -582,49 +568,19 @@ function updateBulkBar(){
   all.checked=keys.length>0&&bulkSel.size>=keys.length;
   $("#bulkDone").disabled=$("#bulkDel").disabled=bulkSel.size===0;
 }
-/* 批量切换完成：逐条走与单条勾选相同的翻转语义（循环实例只作用于当天），快照后可整体撤销 */
+/* 批量切换完成：翻转语义与单条勾选一致（循环实例只作用于当天），快照后可整体撤销 */
 function bulkApplyDone(){
   if(!bulkSel.size)return;
-  const snaps=[];
-  for(const k of [...bulkSel]){
-    const {task:t,date:ds}=splitId(k);if(!t)continue;
-    if(ds){
-      snaps.push({id:t.id,occ:ds,prev:(t.doneOn||{})[ds]});
-      toggleOcc(t,ds);
-    }else{
-      snaps.push({id:t.id,prev:{status:t.status,progress:t.progress,doneAt:t.doneAt}});
-      t.status=t.status==="done"?"todo":"done";
-      t.progress=t.status==="done"?100:0;
-      syncDoneAt(t);
-    }
-  }
-  const n=snaps.length;
+  const r=bulkToggleDone([...bulkSel]);
   save();exitBulk();renderAll();
-  showUndo(`已切换 ${n} 条任务的完成状态`,()=>{
-    for(const s of snaps){
-      const t=taskById(s.id);if(!t)continue;
-      if(s.occ){if(s.prev===undefined)delete t.doneOn[s.occ];else t.doneOn[s.occ]=s.prev;}
-      else Object.assign(t,s.prev);
-    }
-    save();renderAll();
-  });
+  showUndo(`已切换 ${r.count} 条任务的完成状态`,()=>{r.undo();save();renderAll();});
 }
 /* 批量删除：循环实例归并回整条定义（与单条删除语义一致）；快照按原数组索引升序插回，次序精确还原 */
 function bulkApplyDelete(){
   if(!bulkSel.size)return;
-  const ids=[...new Set([...bulkSel].map(k=>{const {task:t}=splitId(k);return t&&t.id;}).filter(Boolean))];
-  const snaps=ids.map(id=>{
-    const i=state.tasks.findIndex(x=>x.id===id);
-    return i<0?null:{i,snap:JSON.parse(JSON.stringify(state.tasks[i]))};
-  }).filter(Boolean).sort((a,b)=>a.i-b.i);
-  const gone=new Set(snaps.map(s=>s.snap.id));
-  state.tasks=state.tasks.filter(t=>!gone.has(t.id));
-  const n=snaps.length;
+  const r=bulkDelete([...bulkSel]);
   save();exitBulk();renderAll();
-  showUndo(`已删除 ${n} 条任务`,()=>{
-    for(const s of snaps)state.tasks.splice(Math.min(s.i,state.tasks.length),0,s.snap);
-    save();renderAll();
-  });
+  showUndo(`已删除 ${r.count} 条任务`,()=>{r.undo();save();renderAll();});
 }
 $("#bulkExit").addEventListener("click",()=>exitBulk());
 $("#bulkAll").addEventListener("change",e=>bulkSelectAll(e.target.checked));
@@ -1101,14 +1057,8 @@ function renderKanban(){
     col.addEventListener("drop",e=>{
       e.preventDefault();
       const t=taskById(dragId);if(!t){clearDropTargets();return;}
-      const changed=col.dataset.col!==sourceCol;
-      if(mode==="status"){
-        t.status=col.dataset.col;
-        if(t.status==="done")t.progress=100;
-        else if(t.status==="todo"&&t.progress===100)t.progress=0;
-        syncDoneAt(t);
-        if(changed)state.kanbanDragHintSeen=true;
-      }else t.type=col.dataset.col;
+      const r=applyKanbanDrop(t,col.dataset.col,mode,col.dataset.col!==sourceCol);
+      if(r.hintSeen)state.kanbanDragHintSeen=true;
       clearDropTargets();save();renderAll();
     });
   });
@@ -1221,11 +1171,7 @@ function formTaskData(){
 }
 $("#tSave").addEventListener("click",()=>{
   const data=formTaskData();if(!data)return;
-  let t;
-  if(editingId){t=taskById(editingId);Object.assign(t,data);}
-  else{t=mk(data);state.tasks.push(t);}
-  if(!t.recur)t.doneOn={}; // 取消循环时丢掉打卡痕迹，避免它悄悄影响以后的重开
-  syncDoneAt(t);
+  saveTask(editingId,data); // 新增或覆盖都在 core 里，含"取消循环即丢打卡痕迹"与 doneAt 同步
   save();$("#taskModal").classList.remove("show");buildFilters();renderAll();
 });
 /* 另存为副本：只按当前表单内容新建一条，不改动（也不保存）弹窗里正在编辑的原任务 */
@@ -1233,6 +1179,7 @@ $("#tCopy").addEventListener("click",()=>{
   const data=formTaskData();if(!data)return;
   if(editingId)data.id=editingId; // 让副本插在源任务后面
   duplicateTask(data);
+  save();buildFilters();renderAll();
   $("#taskModal").classList.remove("show");
 });
 
@@ -1253,19 +1200,11 @@ function openGoalModal(id,level){
   $("#goalModal").classList.add("show");
 }
 function deleteGoal(id){
-  const g=goalById(id);if(!g)return;
-  const lv=goalLevel(id);
-  const gi=goalsOf(lv).findIndex(x=>x.id===id);
-  const snap=JSON.parse(JSON.stringify(g));
-  const affected=state.tasks.filter(t=>t.goalId===id).map(t=>t.id);
-  state.goals[lv]=goalsOf(lv).filter(x=>x.id!==id);
-  state.tasks.forEach(t=>{if(t.goalId===id)t.goalId="";}); // 解除关联，避免悬空 goalId
-  expandedGoals.delete(id);
+  const r=deleteGoalData(id);if(!r)return; // core 已删目标并把关联任务的 goalId 清空
+  expandedGoals.delete(id); // 视图态归壳维护
   save();renderAll();
-  showUndo(`已删除目标「${snap.title}」${affected.length?`，${affected.length} 条任务已解除关联`:""}`,()=>{
-    goalsOf(lv).splice(Math.min(gi,goalsOf(lv).length),0,snap);
-    affected.forEach(tid=>{const t=taskById(tid);if(t&&!t.goalId)t.goalId=id;}); // 只恢复仍未归属的任务，不覆盖撤销前手动改的关联
-    save();renderAll();
+  showUndo(`已删除目标「${r.title}」${r.affectedCount?`，${r.affectedCount} 条任务已解除关联`:""}`,()=>{
+    r.undo();save();renderAll();
   });
 }
 $("#gCancel").addEventListener("click",()=>$("#goalModal").classList.remove("show"));
@@ -1274,11 +1213,7 @@ $("#gDelete").addEventListener("click",()=>{$("#goalModal").classList.remove("sh
 $("#gSave").addEventListener("click",()=>{
   const title=$("#gText").value.trim(),level=$("#gLevel").value;
   if(!title){alert("请填写目标描述");return;}
-  if(editingGoal){
-    const g=goalById(editingGoal),from=goalLevel(editingGoal);
-    g.title=title;
-    if(from!==level){state.goals[from]=goalsOf(from).filter(x=>x.id!==editingGoal);goalsOf(level).push(g);}
-  }else goalsOf(level).push({id:newGoalId(),title});
+  saveGoal(editingGoal,title,level); // 新增 / 改名 / 换档都在 core 里
   save();$("#goalModal").classList.remove("show");renderAll();
 });
 document.addEventListener("click",e=>{
@@ -1327,23 +1262,6 @@ function dropZone(node,cy){
   if(u&&taskGoal(taskById(dragItem.id)))return {el:u,type:"unlink"};
   return null;
 }
-function moveTask(dragId,refId,after){ // 顺序即 state.tasks 数组顺序，不另设字段
-  const from=state.tasks.findIndex(t=>t.id===dragId);if(from<0)return;
-  const [t]=state.tasks.splice(from,1);
-  const to=state.tasks.findIndex(x=>x.id===refId);
-  state.tasks.splice(to<0?state.tasks.length:(after?to+1:to),0,t);
-}
-function moveGoal(dragId,refId,level,after){ // 目标顺序即其档位数组顺序；跨卡放置即改档位
-  const arr=state.goals[level];if(!arr)return;
-  let g,from=arr.findIndex(x=>x.id===dragId);
-  if(from<0){
-    const src=goalLevel(dragId);if(!src)return;
-    from=state.goals[src].findIndex(x=>x.id===dragId);if(from<0)return;
-    [g]=state.goals[src].splice(from,1);
-  }else [g]=arr.splice(from,1);
-  const to=arr.findIndex(x=>x.id===refId);
-  arr.splice(to<0?arr.length:(after?to+1:to),0,g);
-}
 function markZone(z){
   $$(".drag-over,.drop-before,.drop-after").forEach(x=>x.classList.remove("drag-over","drop-before","drop-after"));
   if(z)z.el.classList.add((z.type==="move"||z.type==="moveGoal")?(z.after?"drop-after":"drop-before"):"drag-over");
@@ -1383,16 +1301,9 @@ document.addEventListener("drop",e=>{
   const item=dragItem;
   markZone(null);
   dragItem=null;document.body.classList.remove("dragging-task");
-  if(!item)return;
-  if(z.type==="moveGoal"){moveGoal(item.id,z.ref,z.level,z.after);save();renderAll();return;}
-  if(item.kind!=="task")return;
-  const t=taskById(item.id);if(!t)return;
-  if(z.type==="link"){if(t.goalId!==z.gid){t.goalId=z.gid;expandedGoals.add(z.gid);}} // 自动展开，让关联结果立刻可见
-  else if(z.type==="move"){
-    moveTask(item.id,z.ref,z.after);
-    if(z.gid&&t.goalId!==z.gid){t.goalId=z.gid;expandedGoals.add(z.gid);} // 插进某目标的成员清单即归属该目标
-  }
-  else t.goalId="";
+  const r=applyDrop(item,z);
+  if(!r.applied)return; // 与原实现一致：这类落点不改动 state，也就不持久化、不重绘
+  if(r.autoExpandGid)expandedGoals.add(r.autoExpandGid); // 自动展开，让关联结果立刻可见
   save();renderAll();
 });
 
