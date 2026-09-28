@@ -27,12 +27,13 @@ function json(obj: unknown, status: number) {
   });
 }
 
-/* 逻辑入口是 /functions/v1/app/<后缀>；网关会把名字段换成上游名，所以只取 app 之后的部分 */
+/* 逻辑入口是 /functions/v1/app/<后缀>，但网关会把名字段换成上游物理名，
+   所以不能按 "app" 字符串定位 —— 剥掉前三段即可，逻辑名与物理名都成立。 */
 function subPath(url: string) {
   const p = new URL(url).pathname;
-  const i = p.indexOf("/app");
-  const rest = i >= 0 ? p.slice(i + 4) : p;
-  return rest.startsWith("/") ? rest : "/" + rest;
+  const m = p.match(/^\/functions\/v1\/[^/]+(\/.*)?$/);
+  if (m) return m[1] || "/";
+  return p.startsWith("/") ? p : "/" + p;
 }
 
 Deno.serve(async (req: Request) => {
@@ -52,7 +53,10 @@ Deno.serve(async (req: Request) => {
       return json({ ok: false, error: "upstream_unreachable", kind: name === "AbortError" ? "timeout" : "connect" }, 502);
     }
   }
-  if (!ALLOW_PREFIXES.some(pre => path.startsWith(pre))) return json({ error: "not_found" }, 404);
+  if (!ALLOW_PREFIXES.some(pre => path.startsWith(pre))) {
+    // 回显解析出的子路径（来自调用方自己的 URL），路径规则出错时可一次请求定位
+    return json({ error: "not_found", path }, 404);
+  }
 
   const headers: Record<string, string> = {};
   for (const k of FORWARD_REQ) {
