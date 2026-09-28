@@ -21,6 +21,10 @@ export function authErrorMessage(err){
   if(/email not confirmed/i.test(m))return"邮箱尚未确认，请先查收确认邮件。";
   if(/invalid email|email address is invalid/i.test(m))return"邮箱地址格式不正确。";
   if(/already registered|already been registered/i.test(m))return"该邮箱已注册，请直接登录。";
-  if(/rate limit/i.test(m))return"操作过于频繁，请稍后再试。";
-  return m||"操作失败，请稍后重试。";
+  if(/weak password|password should|at least 6/i.test(m))return"密码强度不足，请至少使用 6 位以上字符。";
+  if(/rate limit|too many|otp expired/i.test(m))return"操作过于频繁，请稍后再试（约 1 小时自动恢复）。";
+  if(/invalid otp|token has expired|expired token/i.test(m))return"验证码已过期或无效，请重新获取。";
+  if(/signups not allowed/i.test(m))return"当前未开放注册。";
+  if(/failed to fetch|network|fetch failed|timeout/i.test(m))return"网络连接失败，请检查网络后重试。";
+  return m;
 }

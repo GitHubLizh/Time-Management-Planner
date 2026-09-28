@@ -524,6 +524,14 @@ eq("优先按 code 命中",F("authErrorMessage")({code:"invalid_credentials",mes
 eq("无 code 时按 message 兜底",F("authErrorMessage")({message:"Invalid login credentials"}),"邮箱或密码不正确。");
 eq("未识别的错误原样返回",F("authErrorMessage")({message:"Something odd"}),"Something odd");
 eq("空错误返回空串",F("authErrorMessage")(null),"");
+/* 以下分支曾在抽取时被漏掉（手机上因此直接露出了英文原文），逐条钉住 */
+eq("弱密码",F("authErrorMessage")({message:"Password should be at least 6 characters"}),"密码强度不足，请至少使用 6 位以上字符。");
+eq("发信/请求过频",F("authErrorMessage")({message:"Too many requests"}),"操作过于频繁，请稍后再试（约 1 小时自动恢复）。");
+eq("验证码无效",F("authErrorMessage")({message:"Invalid otp"}),"验证码已过期或无效，请重新获取。");
+eq("令牌过期",F("authErrorMessage")({message:"token has expired"}),"验证码已过期或无效，请重新获取。");
+eq("未开放注册",F("authErrorMessage")({message:"Signups not allowed for this project"}),"当前未开放注册。");
+eq("网络失败（Failed to fetch）",F("authErrorMessage")({message:"Failed to fetch"}),"网络连接失败，请检查网络后重试。");
+eq("网络失败（timeout）",F("authErrorMessage")({message:"request timeout"}),"网络连接失败，请检查网络后重试。");
 
 console.log("\n== id 选择器对账（桩 DOM 不会因 id 不存在而抛错，只能靠静态比对）==");
 {
