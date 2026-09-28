@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>手帐风 · 日程管理</title>
 <style>
 /* ============ 主题变量 ============ */
@@ -55,7 +55,7 @@ body.theme-i{
   --grid-line:#dde1ea;
   --shadow:0 1px 3px rgba(50,60,90,.08);
 }
-*{box-sizing:border-box;margin:0;padding:0}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 [hidden]{display:none!important} /* label/auth-user 的 display 会覆盖 hidden 属性，需强制 */
 html{font-size:15px}
 body{
@@ -76,7 +76,7 @@ button{font-family:inherit;cursor:pointer}
 ::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
 
 /* ============ 顶部 ============ */
-header{max-width:1440px;margin:0 auto;padding:18px 16px 0}
+header{max-width:1440px;margin:0 auto;padding:18px 16px 0;padding-top:calc(18px + env(safe-area-inset-top))}
 .topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .brand{display:flex;align-items:center;gap:10px}
 .brand svg{width:30px;height:30px;stroke:var(--accent)}
@@ -131,7 +131,7 @@ nav.views button.active{background:var(--ink);color:var(--paper);border-color:va
 body.theme-i .banner b{color:#a9c3e8}
 
 /* ============ 布局与卡片 ============ */
-main{max-width:1440px;margin:0 auto;padding:0 16px 60px}
+main{max-width:1440px;margin:0 auto;padding:0 16px calc(60px + env(safe-area-inset-bottom))}
 .view{display:none;animation:fade .3s ease}
 .view.active{display:block}
 @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
@@ -219,7 +219,7 @@ main{max-width:1440px;margin:0 auto;padding:0 16px 60px}
 .overdue-chip.clear svg{stroke:var(--banner-fg)}
 .overdue-chip:hover:not(.clear):not(.on){background:#fff}
 .undo-bar{
-  position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:60;
+  position:fixed;left:50%;bottom:calc(28px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:60;
   display:none;align-items:center;gap:14px;max-width:calc(100vw - 32px);
   background:var(--banner-bg);color:var(--banner-fg);border-radius:999px;padding:10px 12px 10px 20px;
   box-shadow:0 8px 28px rgba(30,25,20,.3);font-size:.85rem;animation:undoIn .18s ease;
@@ -515,6 +515,101 @@ canvas.chart{width:100%;height:170px}
   .auth-oauth svg{width:17px;height:17px;flex:0 0 auto}
   body.auth-locked header,body.auth-locked main{display:none}
   body:not(.auth-locked) .auth-screen{display:none}
+
+/* ============ 手机端适配层 ============ */
+/* 追加层，不改动上方既有规则；靠级联顺序在小屏胜出。
+   两类判据：@media(hover:none) 按"能力"给触屏常显控件；@media(max-width) 按"宽度"排布局。 */
+
+/* 触屏拖拽把手：默认不占位，仅无 hover 设备显现（桌面仍整卡 draggable） */
+.grip{
+  display:none;flex:0 0 auto;align-items:center;justify-content:center;
+  width:22px;min-width:22px;height:30px;margin-left:-4px;
+  color:var(--muted);font-size:1rem;line-height:1;
+  touch-action:none;cursor:grab;-webkit-user-select:none;user-select:none;
+}
+.grip:active{cursor:grabbing;color:var(--accent)}
+/* 卡片类条目是块级容器，把手改为绝对定位，避免它单独占一行 */
+.gm-row .grip{width:16px;min-width:16px;height:18px;font-size:.8rem}
+.kanban-card .grip{position:absolute;left:2px;top:50%;transform:translateY(-50%);width:16px;min-width:16px;height:26px;font-size:.85rem}
+/* Pointer 触屏拖拽的跟手预览。pointer-events:none 是硬约束：
+   否则 elementFromPoint 恒命中 ghost 自身，dropZone 恒返回 null（拖得动但落不下） */
+.drag-ghost{
+  position:fixed;left:0;top:0;z-index:120;pointer-events:none;opacity:.92;
+  border-radius:8px;box-shadow:0 10px 26px rgba(30,25,20,.3);
+  background:var(--card);border:1.5px solid var(--accent);
+  transform:translate(-999px,-999px);
+}
+/* 横向滚动容器：iOS 惯性滚动 */
+.timetable-wrap,.table-wrap,.gantt-wrap,.week-grid,nav.views{-webkit-overflow-scrolling:touch}
+/* 小屏无 hover，用按压位移代替 :hover 反馈 */
+.btn:active,nav.views button:active,.icon-btn:active,.mini-task:active,.gm-row:active,.od-row:active,.kanban-card:active{transform:translateY(1px);opacity:.8}
+
+@media(hover:none){
+  .grip{display:flex}
+  .icon-btn{width:32px;height:32px}
+  .icon-btn svg{width:15px;height:15px}
+  .task-item .chk{width:26px;height:26px;margin-top:0}
+  .task-item .chk svg{width:15px;height:15px}
+  /* 看板编辑按钮不再靠 hover 显现，并给标题留出更宽的避让 */
+  .kanban-card{padding-left:22px} /* 给绝对定位的把手让出左侧空间 */
+  .kanban-card .kc-edit{opacity:1;width:30px;height:30px}
+  .kanban-card .kc-edit svg{width:15px;height:15px}
+  .kanban-card .kc-title{padding-right:34px}
+}
+
+@media(max-width:900px){
+  /* 日视图塌单列后重排：今日任务 → 目标 → 小日历/概览/逾期。
+     任务列与目标列相邻，跨列拖拽（关联/取消关联）无需跨越整块日历 */
+  .day-layout>div:nth-child(2){order:1}
+  .day-layout>div:nth-child(3){order:2}
+  .day-layout>div:nth-child(1){order:3}
+  /* 课表横滚时左侧时间列钉住，便于对照节次 */
+  table.timetable th:first-child,table.timetable td.time-col{position:sticky;left:0;z-index:2}
+  /* 月进度数据表首列钉住 */
+  table.data th:first-child,table.data td:first-child{position:sticky;left:0;z-index:2;background:var(--card)}
+  table.data th:first-child{background:var(--cream)}
+  /* 甘特首列收窄，整表仍横滚 */
+  .gantt{min-width:640px}
+  .gantt-row{grid-template-columns:120px repeat(5,1fr)}
+  .kanban{scroll-snap-type:x proximity}
+  .kanban-col{scroll-snap-align:start}
+}
+
+@media(max-width:640px){
+  /* 视图切换条吸顶：滚动手页时仍能切视图。左右负 margin 撑满屏宽，避免 16px 留白处透出滚动内容 */
+  nav.views{
+    position:sticky;top:0;z-index:40;background:var(--paper);
+    margin-left:-16px;margin-right:-16px;padding:12px 16px 10px;
+    border-bottom:1px solid var(--grid-line);
+  }
+  .card{padding:12px}
+  .od-list{max-height:180px}
+  /* 软键盘弹起会顶掉 fixed 弹窗底部按钮：小屏改为贴底抽屉，用 dvh 让高度随可视视口收缩 */
+  .modal-mask{align-items:flex-end;padding:0}
+  .modal{max-width:none;border-radius:14px 14px 0 0;max-height:92dvh;padding:18px 14px calc(18px + env(safe-area-inset-bottom))}
+  .form-row{gap:8px}
+  /* 底部固定条换行居中，避免按钮被挤出安全区 */
+  .undo-bar{flex-wrap:wrap;justify-content:center;gap:10px;padding:10px 16px;border-radius:18px}
+  /* 输入控件字号提到 16px：iOS Safari 聚焦时字号小于 16px 会自动放大整页 */
+  .filters select,.filters input[type="search"],.form-row input,.form-row select,.form-row textarea,.auth-form input,table.data input[type=range]{font-size:16px}
+  /* 表格与图表密度下调 */
+  table.timetable td.time-col{width:58px}
+  .hbar .lbl{width:70px}
+  table.data input[type=range]{width:60px}
+  .gantt{min-width:560px}
+  .gantt-row{grid-template-columns:104px repeat(5,1fr)}
+  canvas.chart{height:150px}
+  /* 周视图：一屏一天，横滑翻页 */
+  .week-grid{grid-template-columns:repeat(7,minmax(78vw,78vw));scroll-snap-type:x mandatory}
+  .week-col{scroll-snap-align:start}
+  /* 看板：一屏一列 */
+  .kanban{scroll-snap-type:x mandatory}
+  .kanban-col{min-width:82vw}
+  /* 月历：格子只容得下一条，间距与内边距压到最小 */
+  .month-grid{gap:2px}
+  .day-cell{min-height:52px;padding:3px}
+  .month-grid .mh{font-size:.66rem;padding:3px 0}
+}
 
 </style>
 </head>

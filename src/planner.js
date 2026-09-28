@@ -147,7 +147,7 @@ function applyRemoteState(s){
 }
 function pullRemote(){
   if(!currentUser||!supabaseClient||pullBusy||dirty)return;
-  if(isModalOpen()||bulkMode||document.body.classList.contains("dragging-task"))return; // 编辑/拖拽/批量选中进行中不打断，留给下一轮
+  if(isModalOpen()||bulkMode||dragLock||document.body.classList.contains("dragging-task"))return; // 编辑/拖拽/批量选中进行中不打断，留给下一轮
   pullBusy=true;
   const user=currentUser;
   fetchRemoteRow(user).then(({data,error})=>{
@@ -210,6 +210,13 @@ setState(defaultState());
 /* ================= 工具 ================= */
 const $=s=>document.querySelector(s);
 const $$=s=>Array.from(document.querySelectorAll(s));
+/* 小屏判定：与 index.html 的 @media(max-width:640px) 同判据，供模板按宽度下调信息密度。
+   惰性求值且不放在顶层调用 matchMedia —— Node 测试环境的 vm context 没有该 API，顶层一调用就会中断模块求值 */
+let _narrowQ=null;
+function narrow(){
+  if(typeof matchMedia!=="function")return false;
+  return (_narrowQ||(_narrowQ=matchMedia("(max-width:640px)"))).matches;
+}
 function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
 
 let authMode="login";
@@ -679,7 +686,7 @@ function goalItemHTML(g,level){
   const note=p.total?(p.recur&&!p.plain?`关联 ${p.total} 条循环任务 · 不参与进度`
       :`关联 ${p.total} 条任务 · 已完成 ${p.done} · ${p.pct}%${p.recur?`（另 ${p.recur} 条循环不计入）`:""}`)
     :"拖任务到此处即可关联";
-  return `<div class="goal-item ${open?'open':''}" data-gid="${g.id}" data-level="${level}" draggable="true">${I.target}
+  return `<div class="goal-item ${open?'open':''}" data-gid="${g.id}" data-level="${level}" draggable="true"><span class="grip" data-grip="goal" aria-hidden="true">⠿</span>${I.target}
     <div style="flex:1;min-width:0"><span>${esc(g.title)}</span>
       ${p.plain?`<div class="progress-bar"><i style="width:${p.pct}%"></i></div>`:""}
       <div style="font-size:.7rem;color:var(--muted);margin-top:3px">${note}</div>
@@ -694,6 +701,7 @@ function goalMembersHTML(g){
   if(!expandedGoals.has(g.id))return "";
   const list=goalTasks(g.id);
   return `<div class="goal-members" data-gid="${g.id}">${list.map(t=>`<div class="gm-row" data-gmid="${t.id}" draggable="true" title="点击编辑该任务 · 拖动可排序">
+      <span class="grip" data-grip="gm" aria-hidden="true">⠿</span>
       <span class="prio-dot p${t.priority}" style="margin-top:4px"></span>
       <span class="gm-t ${t.recur?"":t.status==='done'?'done':''}">${esc(t.title)}</span>
       ${t.recur?recurBadge(t):""}
@@ -715,6 +723,7 @@ function taskItemHTML(t,opts){
   const mp=inst?recurDoneIn(t,ms,me):null;
   const key=inst?t.id+"@"+ds:t.id; // 与 data-id 同构，批量选中集用它作 key
   return `<div class="task-item ${done?'done':''}" data-id="${key}"${opts.sortable?' draggable="true"':''}>
+    ${opts.sortable?'<span class="grip" data-grip="task" aria-hidden="true">⠿</span>':""}
     ${opts.bulk?`<input type="checkbox" class="bulk-chk" data-act="bulk-check"${bulkSel.has(key)?' checked':''}>`:""}
     <span class="prio-dot p${t.priority}" title="${PRIO_NAMES[t.priority]}"></span>
     <button class="chk" data-act="toggle" title="${inst?(done?"取消今天这一次的打卡":"记录今天这一份已完成，不影响其他日期"):"勾选完成"}">${I.check}</button>
@@ -1131,10 +1140,11 @@ function renderMonth(){
     const ds=`${monthStr}-${pad(dd)}`;
     const list=tasksOn(ds,pool);
     const doneCnt=list.filter(t=>t.recur?occDone(t,ds):t.status==="done").length;
+    const shown=narrow()?1:3; // 小屏格子只容一条，其余折进"更多"
     cells+=`<div class="day-cell ${ds===fmt(TODAY)?'today':''}${dayTint(ds)}" data-date="${ds}">
       <div class="dn"><span class="dnum"><span class="dtop">${dayMarkBadge(ds)}${dd}</span>${dayInfoBadge(ds)}</span><span class="cnt">${list.length?doneCnt+"/"+list.length+" ✓":""}</span></div>
-      ${list.slice(0,3).map(t=>miniTaskHTML(t,ds,`border-left:3px solid ${['var(--p1)','var(--p2)','var(--p3)','var(--p4)'][t.priority-1]}`)).join("")}
-      ${list.length>3?`<div style="color:var(--muted);font-size:.62rem">+${list.length-3} 更多</div>`:""}
+      ${list.slice(0,shown).map(t=>miniTaskHTML(t,ds,`border-left:3px solid ${['var(--p1)','var(--p2)','var(--p3)','var(--p4)'][t.priority-1]}`)).join("")}
+      ${list.length>shown?`<div style="color:var(--muted);font-size:.62rem">+${list.length-shown} 更多</div>`:""}
     </div>`;
   }
   const typeCnt={};statTasks.forEach(t=>typeCnt[t.type]=(typeCnt[t.type]||0)+1);
@@ -1345,6 +1355,7 @@ function renderKanban(){
     const list=pool.filter(t=>mode==="status"?t.status===key:t.type===key);
     html+=`<div class="kanban-col" data-col="${key}"><h4>${esc(label)}<span class="tag">${list.length}</span></h4>
       ${list.map(t=>`<div class="kanban-card" draggable="true" data-id="${t.id}">
+        <span class="grip" data-grip="kcard" aria-hidden="true">⠿</span>
         <button class="icon-btn kc-edit" draggable="false" title="编辑任务">${I.edit}</button>
         <div class="kc-title"><span class="prio-dot p${t.priority}" style="margin:0 4px 0 0"></span>${esc(t.title)}</div>
         <div class="kc-meta"><span class="tag outline">${esc(t.type)}</span><span>${t.end} ${isOverdue(t)?"已截止":"截止"}</span>${isOverdue(t)?overdueBadge(t):""}${isLateDone(t)?lateBadge(t):""}${t.course?`<span>${esc(t.timeSlot)}</span>`:""}</div>
@@ -1376,6 +1387,10 @@ function renderKanban(){
     c.addEventListener("dblclick",()=>openModal(c.dataset.id));
     const eb=c.querySelector(".kc-edit");
     if(eb)eb.addEventListener("click",()=>openModal(c.dataset.id)); // 绑在每次重建的按钮上，避免常驻容器叠监听器
+    c.addEventListener("click",e=>{
+      if(!narrow()||e.target.closest(".kc-edit"))return; // 触屏难触发 dblclick，小屏下点卡片主体即编辑；按钮自身已绑，避免重复打开
+      openModal(c.dataset.id);
+    });
   });
   v.querySelectorAll(".kanban-col").forEach(col=>{
     col.addEventListener("dragover",e=>{if(col.dataset.col===sourceCol)return;e.preventDefault();col.classList.add("drag-over");});
@@ -1383,17 +1398,20 @@ function renderKanban(){
     col.addEventListener("drop",e=>{
       e.preventDefault();
       const t=taskById(dragId);if(!t){clearDropTargets();return;}
-      const changed=col.dataset.col!==sourceCol;
-      if(mode==="status"){
-        t.status=col.dataset.col;
-        if(t.status==="done")t.progress=100;
-        else if(t.status==="todo"&&t.progress===100)t.progress=0;
-        syncDoneAt(t);
-        if(changed)state.kanbanDragHintSeen=true;
-      }else t.type=col.dataset.col;
+      applyKanbanDrop(t,col.dataset.col,mode,col.dataset.col!==sourceCol);
       clearDropTargets();save();renderAll();
     });
   });
+}
+/* 看板落点语义的唯一实现：桌面 HTML5 DnD 与触屏 Pointer 层都调它 */
+function applyKanbanDrop(t,colKey,mode,changed){
+  if(mode==="status"){
+    t.status=colKey;
+    if(t.status==="done")t.progress=100;
+    else if(t.status==="todo"&&t.progress===100)t.progress=0;
+    syncDoneAt(t);
+    if(changed)state.kanbanDragHintSeen=true;
+  }else t.type=colKey;
 }
 
 /* ================= 任务编辑弹窗 ================= */
@@ -1659,13 +1677,10 @@ document.addEventListener("dragover",e=>{
   e.dataTransfer.dropEffect=z.type==="link"?"link":"move";
   markZone(z);
 });
-document.addEventListener("drop",e=>{
-  const z=dropZone(e.target,e.clientY);if(!z)return;
-  e.preventDefault();
-  const item=dragItem;
-  markZone(null);
-  dragItem=null;document.body.classList.remove("dragging-task");
-  if(!item)return;
+/* 落点语义的唯一实现：桌面 HTML5 DnD 与触屏 Pointer 层都调它。
+   以后改"落到某处意味着什么"（排序/关联/取消关联）只改这里，否则两轨会分歧。 */
+function applyDrop(item,z){
+  if(!item||!z)return;
   if(z.type==="moveGoal"){moveGoal(item.id,z.ref,z.level,z.after);save();renderAll();return;}
   if(item.kind!=="task")return;
   const t=taskById(item.id);if(!t)return;
@@ -1676,7 +1691,149 @@ document.addEventListener("drop",e=>{
   }
   else t.goalId="";
   save();renderAll();
+}
+document.addEventListener("drop",e=>{
+  const z=dropZone(e.target,e.clientY);if(!z)return;
+  e.preventDefault();
+  const item=dragItem;
+  markZone(null);
+  dragItem=null;document.body.classList.remove("dragging-task");
+  applyDrop(item,z);
 });
+
+/* ================= 触屏拖拽（Pointer 层，与上面 HTML5 DnD 双轨并存） ================= */
+/* 本层只接管非鼠标指针（e.pointerType!=="mouse"），鼠标仍走上面的原生拖拽，桌面语义零改动。
+   两轨共用 applyDrop / applyKanbanDrop，落点语义只有一份实现。
+   起拖只认 .grip 把手：卡片主体保留 touch-action 默认值，页面滚动不受影响。 */
+let dragLock=false; // 触屏拖拽进行中：挂起 pullRemote，否则中途 renderAll 会销毁被 capture 的元素
+let pDrag=null;     // {grip,el,item,kind,pointerId,state,x,y,offX,offY,ghost,zone,host,sourceCol,raf,holdT}
+let suppressClickUntil=0; // 拖拽结束时浏览器仍会补发 click，短暂屏蔽以免误开编辑弹窗
+function gripItem(grip){ // 与 dragstart 分支同判据
+  const kind=grip.dataset.grip;
+  if(kind==="kcard"){
+    const c=grip.closest(".kanban-card");if(!c)return null;
+    return {kind:"kcard",id:c.dataset.id};
+  }
+  if(kind==="goal"){
+    const g=grip.closest(".goal-item");if(!g)return null;
+    return {kind:"goal",id:g.dataset.gid};
+  }
+  const it=grip.closest(".task-item,.gm-row");if(!it)return null;
+  if(kind==="task"&&it.classList.contains("task-item")&&!it.closest("[data-reorder]"))return null;
+  return {kind:"task",id:it.dataset.id||it.dataset.gmid};
+}
+function scrollHost(el){
+  let n=el?el.parentElement:null;
+  while(n){
+    const cs=getComputedStyle(n);
+    if(/auto|scroll/.test(cs.overflowX+" "+cs.overflowY))return n;
+    n=n.parentElement;
+  }
+  return null;
+}
+function clearTouchMarks(){
+  markZone(null);
+  const board=$("#view-kanban .kanban");
+  if(board){
+    board.classList.remove("dragging");
+    $$("#view-kanban .kanban-col").forEach(c=>c.classList.remove("drag-target","drag-over"));
+  }
+}
+function armTouchDrag(){
+  const p=pDrag;if(!p||p.state==="dragging")return;
+  p.state="dragging";
+  dragLock=true;
+  const r=p.el.getBoundingClientRect();
+  const g=p.el.cloneNode(true);
+  g.classList.add("drag-ghost");
+  g.style.width=r.width+"px";
+  (g.querySelector(".grip")||{}).remove?.();
+  document.body.appendChild(g);
+  p.ghost=g;p.offX=p.x-r.left;p.offY=p.y-r.top;
+  if(p.item.kind==="kcard"){
+    const board=$("#view-kanban .kanban");
+    if(board){
+      board.classList.add("dragging");
+      $$("#view-kanban .kanban-col").forEach(c=>{if(c.dataset.col!==p.sourceCol)c.classList.add("drag-target");});
+    }
+  }else{
+    dragItem={kind:p.item.kind,id:p.item.id}; // dropZone 依赖这个全局量
+    if(p.item.kind==="task")document.body.classList.add("dragging-task"); // 否则 unlink-zone 不显现，取消关联在触屏上失效
+  }
+  requestAnimationFrame(function loop(){
+    if(!pDrag||pDrag!==p||p.state!=="dragging")return;
+    paintTouchDrag(p);
+    p.raf=requestAnimationFrame(loop);
+  });
+}
+function paintTouchDrag(p){
+  if(p.ghost)p.ghost.style.transform=`translate(${p.x-p.offX}px,${p.y-p.offY}px)`;
+  const node=document.elementFromPoint(p.x,p.y); // ghost 是 pointer-events:none，不会命中自身
+  if(p.item.kind==="kcard"){
+    const col=node&&node.closest?node.closest(".kanban-col"):null;
+    const ok=col&&col.dataset.col!==p.sourceCol;
+    $$("#view-kanban .kanban-col").forEach(c=>c.classList.toggle("drag-over",c===col&&!!ok));
+    p.zone=ok?col:null;
+  }else{
+    const z=dropZone(node,p.y);
+    p.zone=z;markZone(z);
+  }
+  autoScroll(p);
+}
+function autoScroll(p){
+  const band=48,step=14;
+  let dy=0,dx=0;
+  if(p.y<band)dy=-step;else if(innerHeight-p.y<band)dy=step;
+  if(p.x<band)dx=-step;else if(innerWidth-p.x<band)dx=step;
+  if(!dy&&!dx)return;
+  p.host=p.host===undefined?scrollHost(p.el):p.host;
+  const h=p.host;
+  const canV=h&&h.scrollHeight>h.clientHeight+1,canH=h&&h.scrollWidth>h.clientWidth+1;
+  if(dy){if(canV)h.scrollTop+=dy;else window.scrollBy(0,dy);}
+  if(dx){if(canH)h.scrollLeft+=dx;else window.scrollBy(dx,0);}
+}
+function endTouchDrag(pullAfter){ // 参数不要命名为 save，会遮蔽模块级的 save()
+  const p=pDrag;if(!p)return;
+  clearTimeout(p.holdT);
+  if(p.raf)cancelAnimationFrame(p.raf);
+  if(p.state==="dragging"){
+    if(p.item.kind==="kcard"){
+      const t=taskById(p.item.id);
+      if(t&&p.zone){applyKanbanDrop(t,p.zone.dataset.col,state.kanbanMode,p.zone.dataset.col!==p.sourceCol);save();renderAll();}
+    }else applyDrop(p.item,p.zone);
+    suppressClickUntil=Date.now()+400; // 松手后浏览器补发的 click 不算"点开编辑"
+  }
+  (p.ghost||{}).remove?.();
+  dragItem=null;document.body.classList.remove("dragging-task");
+  clearTouchMarks();
+  pDrag=null;dragLock=false;
+  if(pullAfter)setTimeout(pullRemote,0); // 锁期间被跳过的远端更新，解锁后补拉一次
+}
+function initPointerDrag(){
+  document.addEventListener("pointerdown",e=>{
+    if(e.pointerType==="mouse"||bulkMode)return; // 鼠标交回原生拖拽；批量模式下禁拖，与 dragstart 分支同判据
+    const grip=e.target.closest(".grip");if(!grip)return;
+    if(pDrag)endTouchDrag(false); // 上一次没等到 pointerup（异常中断）时先自愈，否则 dragLock 会永久挂起同步
+    const item=gripItem(grip);if(!item)return;
+    const el=grip.closest(".task-item,.goal-item,.gm-row,.kanban-card");if(!el)return;
+    e.preventDefault(); // 只锁把手本身，卡片主体的滚动照常
+    grip.setPointerCapture(e.pointerId);
+    pDrag={grip,el,item,kind:item.kind,pointerId:e.pointerId,state:"pending",
+      sx:e.clientX,sy:e.clientY,x:e.clientX,y:e.clientY,offX:0,offY:0,ghost:null,zone:null,host:undefined,raf:0,
+      sourceCol:(el.closest(".kanban-col")||{}).dataset?.col||"",holdT:0};
+    pDrag.holdT=setTimeout(armTouchDrag,220); // 长按起拖；快速直拖由 pointermove 兜底
+  });
+  document.addEventListener("pointermove",e=>{
+    const p=pDrag;if(!p||e.pointerId!==p.pointerId)return;
+    p.x=e.clientX;p.y=e.clientY;
+    if(p.state!=="dragging"&&Math.hypot(p.x-p.sx,p.y-p.sy)>6)armTouchDrag(); // 没等到长按但也明显在拖，直接起拖
+  });
+  document.addEventListener("pointerup",e=>{if(pDrag&&e.pointerId===pDrag.pointerId)endTouchDrag(true);});
+  document.addEventListener("pointercancel",e=>{if(pDrag&&e.pointerId===pDrag.pointerId)endTouchDrag(false);});
+  document.addEventListener("click",e=>{
+    if(Date.now()<suppressClickUntil){e.preventDefault();e.stopPropagation();}
+  },true);
+}
 
 /* ================= 总渲染 ================= */
 const RENDER={schedule:renderSchedule,day:renderDay,week:renderWeek,month:renderMonth,mprogress:renderMProgress,year:renderYear,kanban:renderKanban};
@@ -1690,7 +1847,7 @@ function isModalOpen(){return $("#taskModal").classList.contains("show")||$("#go
 function initializePlanner(){
   $("#tType").innerHTML=TYPES.map(t=>`<option>${t}</option>`).join("");
   $("#gLevel").innerHTML=GOAL_LEVELS.map(([k,label])=>`<option value="${k}">${label}目标</option>`).join("");
-  applyTheme();buildFilters();renderAll();
+  applyTheme();buildFilters();renderAll();initPointerDrag();
   if(dateWatcherStarted)return;
   dateWatcherStarted=true;
   setInterval(rollDate,1000);
@@ -1699,5 +1856,6 @@ function initializePlanner(){
   window.addEventListener("focus",pullRemote);
   setInterval(()=>{if(!document.hidden)pullRemote();},60000); // 常开页面的兜底轮询
   window.addEventListener("resize",()=>{if(state.view==="year")drawYearChart(parseD(state.selDate).getFullYear(),statsPool(filteredTasks()));});
+  if(typeof matchMedia==="function")matchMedia("(max-width:640px)").addEventListener("change",renderAll); // 月历每格条数按 narrow() 渲染，跨断点需重画
 }
 window.bootstrapPlanner=bootstrapPlanner;
