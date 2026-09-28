@@ -27,13 +27,15 @@ function json(obj: unknown, status: number) {
   });
 }
 
-/* 逻辑入口是 /functions/v1/app/<后缀>，但网关会把名字段换成上游物理名，
-   所以不能按 "app" 字符串定位 —— 剥掉前三段即可，逻辑名与物理名都成立。 */
+/* 实测：网关把 /functions/v1/<逻辑名> 整段换成物理名 app-<部署号> 作为**首段**，
+   函数收到的是 /app-d01a0e8e.../probe 这种形态，没有 /functions/v1 前缀。
+   所以剥掉首段即可；若某版本不再带名字前缀（路径本身就是子路径），走兜底分支。
+   物理名含部署号、每次部署都会变，故绝不可按字面量匹配。 */
 function subPath(url: string) {
   const p = new URL(url).pathname;
-  const m = p.match(/^\/functions\/v1\/[^/]+(\/.*)?$/);
-  if (m) return m[1] || "/";
-  return p.startsWith("/") ? p : "/" + p;
+  const rest = p.replace(/^\/[^/]+/, "") || "/";
+  const isSub = ALLOW_PREFIXES.some(pre => rest.startsWith(pre)) || rest === "/probe" || rest === "/probe/";
+  return isSub ? rest : p;
 }
 
 Deno.serve(async (req: Request) => {
