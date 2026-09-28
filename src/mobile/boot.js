@@ -2,6 +2,7 @@
    无会话时渲染登录页；OAuth 回跳后由 onAuthStateChange 接住。 */
 import { createClient } from "@supabase/supabase-js";
 import { createSession } from "./session.js";
+import { resolveSupabaseBase } from "../endpoint.js";
 import { renderLogin } from "./login.js";
 import { createApp } from "./shell.js";
 
@@ -25,8 +26,9 @@ if (!url || !anonKey) {
   root.innerHTML = '<div class="m-login"><p class="m-msg">请在 .env 中配置 VITE_SUPABASE_URL 和 VITE_SUPABASE_ANON_KEY。</p></div>';
 } else {
   try {
-    const client = createClient(url, anonKey);
-    const session = createSession(client, { url, anonKey });
+    const base = resolveSupabaseBase(url);   // 部署态走同域代理，dev 直连
+    const client = createClient(base, anonKey);
+    const session = createSession(client, { url: base, anonKey });
     let app = null;
 
     async function enter(user) {

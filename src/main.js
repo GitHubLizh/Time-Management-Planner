@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import './planner.js';
+import { resolveSupabaseBase } from './endpoint.js';
 
 const url = import.meta.env.VITE_SUPABASE_URL;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -11,5 +12,7 @@ if (!url || !anonKey) {
     element.disabled = true;
   });
 } else {
-  window.bootstrapPlanner(createClient(url, anonKey), { url, anonKey });
+  // 部署在站点域下时走同域代理（手机网络到不了 *.supabase.co），本地 dev 仍直连
+  const base = resolveSupabaseBase(url);
+  window.bootstrapPlanner(createClient(base, anonKey), { url: base, anonKey });
 }
