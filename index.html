@@ -481,10 +481,12 @@ canvas.chart{width:100%;height:170px}
 .deco-line{height:1px;background:repeating-linear-gradient(90deg,var(--line) 0 8px,transparent 8px 14px);margin:14px 0}
 
   /* ============ 认证 ============ */
-  .auth-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;
+  .auth-screen{min-height:100vh;min-height:100dvh;display:flex;align-items:flex-start;justify-content:center;padding:24px;
     background-image:radial-gradient(var(--grid-line) 1.1px,transparent 1.1px),radial-gradient(1100px 480px at 50% -8%,var(--accent-soft),transparent 72%);
     background-size:18px 18px,100% 100%;}
-  .auth-card{position:relative;width:100%;max-width:400px;background:var(--card);border:1.5px solid var(--line);border-radius:14px;padding:30px 28px 22px;box-shadow:0 10px 30px rgba(60,50,40,.10)}
+  /* margin:auto 是安全居中：有余量时垂直居中，内容高于视口时退到顶部并可滚到全，
+     而 align-items:center 会让超高的卡片上下等量溢出，顶部永远滚不回去 */
+  .auth-card{position:relative;width:100%;max-width:400px;margin:auto;background:var(--card);border:1.5px solid var(--line);border-radius:14px;padding:30px 28px 22px;box-shadow:0 10px 30px rgba(60,50,40,.10)}
   .auth-card::before{content:"";position:absolute;inset:7px;border:1px dashed var(--line);border-radius:9px;pointer-events:none}
   .tape{position:absolute;width:92px;height:26px;top:-13px;background-color:var(--accent-soft);opacity:.92;
     border-left:1px dashed var(--line);border-right:1px dashed var(--line);
@@ -501,6 +503,13 @@ canvas.chart{width:100%;height:170px}
   .auth-card h2{font-size:1.2rem;margin-bottom:8px}
   .auth-card p{font-size:.8rem;color:var(--muted);line-height:1.6;margin-bottom:18px}
   .auth-form{display:grid;gap:12px}
+  /* 注册 / 邮箱链接登陆：原本各自带行内 width+margin，收进容器才能在小屏并排 */
+  .auth-alt{display:grid}
+  .auth-alt .btn{width:100%;margin-top:10px}
+  .auth-alt .btn+.btn{margin-top:8px}
+  .auth-alt{display:grid}
+  .auth-alt .btn{width:100%;margin-top:10px}
+  .auth-alt .btn+.btn{margin-top:8px}
   .auth-form label{font-size:.75rem;color:var(--muted);display:grid;gap:5px}
   .auth-form input{width:100%;border:1.5px solid var(--line);border-radius:8px;padding:9px 10px;font-size:.88rem;background:var(--paper);color:var(--ink);font-family:inherit}
   .auth-message{min-height:1.4em;margin:12px 0 0!important;color:var(--accent)!important}
@@ -611,6 +620,30 @@ canvas.chart{width:100%;height:170px}
   .month-grid .mh{font-size:.66rem;padding:3px 0}
 }
 
+/* 认证页小屏：手机首屏要的是"能马上登录进去"，不是把桌面构图等比缩小 */
+@media(max-width:640px){
+  .auth-screen{padding:calc(12px + env(safe-area-inset-top)) 10px calc(16px + env(safe-area-inset-bottom))}
+  .auth-card{max-width:none;border-radius:12px;padding:16px 14px 14px}
+  .auth-card::before{display:none} /* 卡片内再套一层虚线框，在 340px 宽的列里只剩拥挤 */
+  .tape{display:none}              /* 胶带属页眉装饰，让位给操作区 */
+  .auth-brand{padding-bottom:10px;margin-bottom:12px}
+  .auth-brand svg{width:26px;height:26px}
+  .auth-brand .t{font-size:.95rem}
+  .auth-brand .s{font-size:.58rem;letter-spacing:.16em}
+  .auth-stamp{width:42px;height:42px;font-size:.6rem}
+  .auth-card h2{font-size:1.05rem;margin-bottom:4px}
+  #authDescription{font-size:.74rem;line-height:1.5;margin-bottom:14px}
+  .auth-form{gap:10px}
+  .auth-form label{font-size:.72rem;gap:4px}
+  .auth-form input{padding:12px}
+  .auth-form .btn,.auth-alt .btn,.auth-oauth button{min-height:46px} /* 拇指可点区 */
+  .auth-alt{grid-template-columns:1fr 1fr;gap:8px} /* 两个整宽按钮并排，省一段竖向空间 */
+  .auth-alt .btn,.auth-alt .btn+.btn{width:auto;margin-top:10px;padding:0 6px;font-size:.78rem}
+  .auth-divider{margin:14px 0 10px}
+  .auth-oauth{gap:8px}
+  .auth-foot{font-size:.64rem}
+}
+
 </style>
 </head>
 <body class="theme-e auth-locked">
@@ -633,8 +666,10 @@ canvas.chart{width:100%;height:170px}
         <label id="authPasswordRow">密码<input id="authPassword" type="password" autocomplete="current-password" minlength="8" required></label>
         <button class="btn" id="authSubmit" type="submit">登录</button>
       </form>
-      <button class="btn ghost" id="authMode" type="button" style="width:100%;margin-top:10px">没有账号？注册</button>
-      <button class="btn ghost" id="authOtp" type="button" style="width:100%;margin-top:8px">邮箱链接登陆</button>
+      <div class="auth-alt">
+        <button class="btn ghost" id="authMode" type="button">没有账号？注册</button>
+        <button class="btn ghost" id="authOtp" type="button">邮箱链接登陆</button>
+      </div>
       <div class="auth-divider">或使用第三方账号</div>
       <div class="auth-oauth">
         <button id="authOAuthGoogle" type="button">
