@@ -17,8 +17,8 @@ import * as coreGoals from "./src/core/goals.js";
 const plannerPath=process.argv[2];
 const html=fs.readFileSync(process.argv[3]||path.resolve(path.dirname(plannerPath),"..","index.html"),"utf8");
 const src=fs.readFileSync(plannerPath,"utf8");
-// 剥掉 import 行：这些符号下面直接挂到 vm 全局，vm 里的自由标识符就能解析到 core 实现
-const executableSrc=src.split("\n").filter(l=>!/^\s*import[\s\S]*?from\s+"[^"]+";\s*$/.test(l)).join("\n");
+// 剥掉 import 块（含跨行写法）：这些符号下面直接挂到 vm 全局，vm 里的自由标识符就能解析到 core 实现
+const executableSrc=src.replace(/^[ \t]*import[\s\S]*?from\s+"[^"]+";[ \t]*\n/gm, "");
 
 // core 的时钟锚到夹具那天：core 是在 Node 里真实加载的，拿不到 vm 的假 Date
 coreClock.setToday("2026-09-18");

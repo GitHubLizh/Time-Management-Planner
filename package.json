@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node _recur_test.js src/planner.js"
+    "test": "node _recur_test.js src/planner.js",
+    "golden": "node _golden_render.mjs _golden.json"
   },
   "dependencies": {
     "@supabase/supabase-js": "latest",

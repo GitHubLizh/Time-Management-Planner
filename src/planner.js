@@ -1,13 +1,14 @@
 import { pinyin } from "pinyin-pro";
 import { TYPES, PRIO_NAMES, STATUS_NAMES, RECUR_RULES, DOW_NAMES, GOAL_LEVELS } from "./core/constants.js";
-import { pad, fmt, parseD, addDays, mondayOf, monthRange, fmtDur } from "./core/dates.js";
+import { pad, fmt, parseD, addDays, monthRange, fmtDur } from "./core/dates.js";
 import { today as TODAY } from "./core/clock.js";
-import { CN_HOLIDAY, HOLIDAY_SRC, SOLAR_FESTIVALS, applyHolidayYear, refreshHolidayYear, isLegalWorkday, lunarOf } from "./core/holidays.js";
-import { setPinyinImpl, slotOf, titleMatchesKeyword } from "./core/filters.js";
-import { occursOn, recurText, nextOccurrence, prevOccurrence, occurrencesBetween, occDone, toggleOcc, recurDoneIn, recurStreak, statsPool } from "./core/recur.js";
+import { CN_HOLIDAY, HOLIDAY_SRC, SOLAR_FESTIVALS, refreshHolidayYear, lunarOf } from "./core/holidays.js";
+import { setPinyinImpl } from "./core/filters.js";
+import { recurText, occurrencesBetween, occDone, toggleOcc, recurDoneIn, recurStreak, statsPool } from "./core/recur.js";
 import { state, setState, defaultState, mk, newGoalId, taskById } from "./core/schema.js";
-import { filteredTasks, tasksOn, splitId, isOverdue, overdueDays, overdueList, syncDoneAt, isLateDone, lateDays, lateList, statsOf, hasActiveFilter } from "./core/selectors.js";
-import { goalsOf, goalLevel, goalById, goalTasks, goalTasksOn, goalVisibleThisWeek, taskGoal, goalProgress } from "./core/goals.js";
+import { filteredTasks, tasksOn, splitId, isOverdue, overdueDays, overdueList, syncDoneAt, isLateDone, lateDays, lateList, statsOf, hasActiveFilter,
+  SLOT_TIMES, scheduleGrid, dayGroups, weekDaysOf, miniCalGrid, weekColumns, dailyCounts, monthTasksOf, monthGrid, progressWeeks, monthSpanFilter, ganttCells, yearSplit, yearMonthDays, monthSlice, monthlyRates, kanbanSplit } from "./core/selectors.js";
+import { goalsOf, goalLevel, goalById, goalTasks, goalVisibleThisWeek, taskGoal, goalProgress } from "./core/goals.js";
 
 /* 拼音实现由壳注入：core 不认识 pinyin-pro，小程序可以换成别的或不注入（首字母降级为不匹配） */
 setPinyinImpl(pinyin);
@@ -657,7 +658,7 @@ function statsPanelHTML(list){
 }
 
 /* ================= 课表视图 ================= */
-const SLOT_TIMES=[["08:00","09:40"],["10:00","11:40"],["14:00","15:40"],["16:00","17:40"],["19:00","20:40"]];
+/* SLOT_TIMES 与分格规则已下沉到 core/selectors.js，课表网格由 scheduleGrid 给出 */
 function slotStart(s){return SLOT_TIMES[s][0];}
 function renderSchedule(){
   const pool=filteredTasks();
@@ -665,13 +666,13 @@ function renderSchedule(){
   const shownCourses=courses.filter(c=>pool.includes(c)||!hasActiveFilter());
   let html=`<div class="card"><h3>${I.book}本周课表（周一至周日 · 08:00 - 22:00）</h3>
   <div class="timetable-wrap"><table class="timetable"><thead><tr><th>时间</th>${["周一","周二","周三","周四","周五","周六","周日"].map(w=>`<th>${w}</th>`).join("")}</tr></thead><tbody>`;
-  SLOT_TIMES.forEach((st,si)=>{
+  const grid=scheduleGrid(shownCourses);
+  grid.forEach((row,si)=>{
+    const st=row.slot;
     html+=`<tr><td class="time-col">第${si+1}大节<br>${st[0]}-${st[1]}</td>`;
-    for(let dow=1;dow<=7;dow++){
-      const d=dow%7;
-      const cs=shownCourses.filter(c=>c.dow===d&&c.timeSlot&&c.timeSlot.startsWith(st[0].slice(0,2)));
-      html+=`<td class="cell">${cs.map(c=>`<div class="course-block" data-id="${c.id}"><b>${esc(c.title)}</b><span class="meta">${esc(c.room)}<br>${esc(c.teacher)} · ${esc(c.timeSlot)}</span></div>`).join("")}</td>`;
-    }
+    row.cells.forEach(cell=>{
+      html+=`<td class="cell">${cell.tasks.map(c=>`<div class="course-block" data-id="${c.id}"><b>${esc(c.title)}</b><span class="meta">${esc(c.room)}<br>${esc(c.teacher)} · ${esc(c.timeSlot)}</span></div>`).join("")}</td>`;
+    });
     html+="</tr>";
   });
   html+=`</tbody></table></div>
@@ -694,28 +695,21 @@ function renderSchedule(){
 let calNav=null; // 迷你日历临时浏览的月份 {y,m,anchor:当时的selDate}，selDate 变化后自动失效回归跟随
 function renderDay(){
   const sel=parseD(state.selDate);
-  const weekStart=mondayOf(sel);
-  const weekDays=Array.from({length:7},(_,i)=>fmt(addDays(weekStart,i)));
+  const weekDays=weekDaysOf(state.selDate);
   const pool=filteredTasks();
-  const dayTasks=tasksOn(state.selDate,pool);
-  const courses=dayTasks.filter(t=>t.course);
-  const recurring=dayTasks.filter(t=>t.recur);
-  const normal=dayTasks.filter(t=>!t.recur&&!t.course);
-  const normalTotal=tasksOn(state.selDate).filter(t=>!t.recur&&!t.course).length; // 不受筛选影响的全量
+  const {list:dayTasks,courses,recurring,normal,normalTotal}=dayGroups(state.selDate,pool);
   if(calNav&&calNav.anchor!==state.selDate)calNav=null;
   const selY=sel.getFullYear(),selM=sel.getMonth();
   const y=calNav?calNav.y:selY,m=calNav?calNav.m:selM;
-  const first=new Date(y,m,1);const startOffset=(first.getDay()+6)%7;
-  const daysIn=new Date(y,m+1,0).getDate();
-  const todayStr=fmt(TODAY);
   let calCells="";
-  for(let i=0;i<startOffset;i++)calCells+="<td></td>";
-  for(let dd=1;dd<=daysIn;dd++){
-    const ds=fmt(new Date(y,m,dd));
-    const cls=[ds<todayStr?"past":"",ds===todayStr?"today":"",ds===state.selDate?"sel":"",tasksOn(ds).length?"has-task":""].join(" ");
-    calCells+=`<td class="${cls}${dayTint(ds)}" data-date="${ds}"><span class="dtop">${dayMarkBadge(ds)}${dd}</span>${dayInfoBadge(ds)}</td>`;
-    if((startOffset+dd)%7===0)calCells+="</tr><tr>";
-  }
+  const cal=miniCalGrid(y,m);
+  for(let i=0;i<cal.startOffset;i++)calCells+="<td></td>";
+  cal.days.forEach(c=>{
+    const ds=c.ds;
+    const cls=[c.past?"past":"",c.today?"today":"",c.sel?"sel":"",c.hasTask?"has-task":""].join(" ");
+    calCells+=`<td class="${cls}${dayTint(ds)}" data-date="${ds}"><span class="dtop">${dayMarkBadge(ds)}${c.dd}</span>${dayInfoBadge(ds)}</td>`;
+    if((cal.startOffset+c.dd)%7===0)calCells+="</tr><tr>";
+  });
   const ty=TODAY.getFullYear();
   let yearOpts="";for(let yy=Math.min(y,ty)-1;yy<=Math.max(y,ty)+1;yy++)yearOpts+=`<option value="${yy}"${yy===y?" selected":""}>${yy}</option>`;
   let monthOpts="";for(let mm=0;mm<12;mm++)monthOpts+=`<option value="${mm}"${mm===m?" selected":""}>${String(mm+1).padStart(2,"0")}月</option>`;
@@ -822,15 +816,15 @@ function tickClock(){
 
 /* ================= 周视图 ================= */
 function renderWeek(){
-  const mon=mondayOf(parseD(state.selDate));
+  const days=weekDaysOf(state.selDate);
   const pool=filteredTasks();
-  const days=Array.from({length:7},(_,i)=>fmt(addDays(mon,i)));
   const weekTasks=pool.filter(t=>days.some(ds=>tasksOn(ds,[t]).length));
   const statTasks=statsPool(weekTasks); // 概览数字只算单次任务，避免每日习惯把总数灌水
   const s=statsOf(statTasks);
   const recurCnt=weekTasks.length-statTasks.length;
   const typeCnt={};statTasks.forEach(t=>typeCnt[t.type]=(typeCnt[t.type]||0)+1);
   const maxType=Math.max(1,...Object.values(typeCnt));
+  const daily=dailyCounts(pool,days);
   const planSum=statTasks.reduce((a,t)=>a+(t.plannedTime||0),0);
   const actSum=statTasks.reduce((a,t)=>a+(t.actualTime||0),0);
   let html=`<div class="card" style="margin-bottom:14px"><h3>${I.chart}本周概览（${days[0]} ~ ${days[6]}）${recurCnt?`<span class="tag outline" style="margin-left:auto" title="本周有 ${recurCnt} 条循环任务，只在下方的日程列出现，不计入本页任何数字">另 ${recurCnt} 条循环不计入</span>`:""}</h3>
@@ -843,10 +837,8 @@ function renderWeek(){
     <div class="grid2">
       <div><b style="font-size:.8rem">任务类型</b><div style="margin-top:8px">${TYPES.filter(t=>typeCnt[t]).map(t=>
         `<div class="hbar"><span class="lbl">${t}</span><span class="bar"><i style="width:${Math.round(typeCnt[t]/maxType*100)}%;background:${TYPE_COLORS[TYPES.indexOf(t)]}"></i></span><span class="val">${typeCnt[t]}</span></div>`).join("")||'<div class="empty-tip">暂无</div>'}</div></div>
-      <div><b style="font-size:.8rem">每日任务数量<span style="font-weight:400;color:var(--muted)">（不含循环实例）</span></b><div style="margin-top:8px">${days.map((ds,i)=>{
-        const cnt=ds2=>tasksOn(ds2,pool).filter(t=>!t.recur).length;
-        const c=cnt(ds);const mx=Math.max(1,...days.map(cnt));
-        return `<div class="hbar"><span class="lbl">${"周"+"一二三四五六日"[i]} ${ds.slice(5)}</span><span class="bar"><i style="width:${Math.round(c/mx*100)}%"></i></span><span class="val">${c}</span></div>`;}).join("")}</div></div>
+      <div><b style="font-size:.8rem">每日任务数量<span style="font-weight:400;color:var(--muted)">（不含循环实例）</span></b><div style="margin-top:8px">${days.map((ds,i)=>
+        `<div class="hbar"><span class="lbl">${"周"+"一二三四五六日"[i]} ${ds.slice(5)}</span><span class="bar"><i style="width:${Math.round(daily.counts[i]/daily.max*100)}%"></i></span><span class="val">${daily.counts[i]}</span></div>`).join("")}</div></div>
     </div>
     <div class="deco-line"></div>
     <b style="font-size:.8rem">本周目标进度</b>
@@ -854,11 +846,11 @@ function renderWeek(){
       return `<div class="hbar"><span class="lbl" style="width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(g.title)}">${esc(g.title)}</span><span class="bar"><i style="width:${p.pct}%"></i></span><span class="val">${p.total?p.pct+"%":"—"}</span></div>`;}).join("")||'<div class="empty-tip">暂无本周目标</div>'}</div>
   </div>
   <div class="week-grid">`;
-  days.forEach((ds,i)=>{
-    const list=tasksOn(ds,pool).sort((a,b)=>(a.course?0:1)-(b.course?0:1)||a.priority-b.priority);
+  weekColumns(pool,days).forEach((col,i)=>{
+    const ds=col.ds;
     html+=`<div class="week-col ${ds===fmt(TODAY)?'today':''}">
       <div class="wd">${"周"+"一二三四五六日"[i]}<span class="dnum">${ds.slice(8)}</span></div>
-      ${list.map(t=>miniTaskHTML(t,ds)).join("")||'<div style="font-size:.68rem;color:var(--muted);text-align:center;padding:8px 0">—</div>'}
+      ${col.tasks.map(t=>miniTaskHTML(t,ds)).join("")||'<div style="font-size:.68rem;color:var(--muted);text-align:center;padding:8px 0">—</div>'}
     </div>`;
   });
   html+="</div>";
@@ -872,28 +864,23 @@ function renderWeek(){
 function renderMonth(){
   const sel=parseD(state.selDate);
   const y=sel.getFullYear(),m=sel.getMonth();
-  const first=new Date(y,m,1);const startOffset=(first.getDay()+6)%7;
-  const daysIn=new Date(y,m+1,0).getDate();
   const pool=filteredTasks();
   const monthStr=`${y}-${pad(m+1)}`;
-  const monthTasks=pool.filter(t=>(t.start<=monthStr+"-31"&&t.end>=monthStr+"-01")||(t.course&&t.start<=monthStr+"-31"));
+  const monthTasks=monthTasksOf(y,m,pool);
   const statTasks=statsPool(monthTasks);
   const s=statsOf(statTasks);
   const recurCnt=monthTasks.length-statTasks.length;
+  const grid=monthGrid(y,m,pool);
   let cells="";
-  const totalCells=Math.ceil((startOffset+daysIn)/7)*7;
-  for(let i=0;i<totalCells;i++){
-    const dd=i-startOffset+1;
-    if(dd<1||dd>daysIn){cells+='<div class="day-cell out"></div>';continue;}
-    const ds=`${monthStr}-${pad(dd)}`;
-    const list=tasksOn(ds,pool);
-    const doneCnt=list.filter(t=>t.recur?occDone(t,ds):t.status==="done").length;
+  grid.cells.forEach(c=>{
+    if(c.out){cells+='<div class="day-cell out"></div>';return;}
+    const ds=c.ds;
     cells+=`<div class="day-cell ${ds===fmt(TODAY)?'today':''}${dayTint(ds)}" data-date="${ds}">
-      <div class="dn"><span class="dnum"><span class="dtop">${dayMarkBadge(ds)}${dd}</span>${dayInfoBadge(ds)}</span><span class="cnt">${list.length?doneCnt+"/"+list.length+" ✓":""}</span></div>
-      ${list.slice(0,3).map(t=>miniTaskHTML(t,ds,`border-left:3px solid ${['var(--p1)','var(--p2)','var(--p3)','var(--p4)'][t.priority-1]}`)).join("")}
-      ${list.length>3?`<div style="color:var(--muted);font-size:.62rem">+${list.length-3} 更多</div>`:""}
+      <div class="dn"><span class="dnum"><span class="dtop">${dayMarkBadge(ds)}${c.dd}</span>${dayInfoBadge(ds)}</span><span class="cnt">${c.list.length?c.doneCnt+"/"+c.list.length+" ✓":""}</span></div>
+      ${c.list.slice(0,3).map(t=>miniTaskHTML(t,ds,`border-left:3px solid ${['var(--p1)','var(--p2)','var(--p3)','var(--p4)'][t.priority-1]}`)).join("")}
+      ${c.list.length>3?`<div style="color:var(--muted);font-size:.62rem">+${c.list.length-3} 更多</div>`:""}
     </div>`;
-  }
+  });
   const typeCnt={};statTasks.forEach(t=>typeCnt[t.type]=(typeCnt[t.type]||0)+1);
   const html=`<div class="month-layout">
     <div class="card"><h3>${I.book}${y} 年 ${m+1} 月${recurCnt?`<span class="tag outline" style="margin-left:auto" title="虚线左边框的是循环任务的当天实例，打卡状态逐日独立，不与单次任务混算">含循环实例</span>`:""}</h3>
@@ -945,19 +932,11 @@ function renderMProgress(){
   const sel=parseD(state.selDate);
   const y=sel.getFullYear(),m=sel.getMonth();
   const monthStr=`${y}-${pad(m+1)}`;
-  const daysIn=new Date(y,m+1,0).getDate();
-  const inMonth=t=>!t.course&&t.start<=monthStr+"-"+pad(daysIn)&&t.end>=monthStr+"-01";
+  const inMonth=monthSpanFilter(y,m);
   const spanCnt=filteredTasks().filter(inMonth).length;
   const pool=filteredTasks().filter(t=>inMonth(t)&&!t.recur);
   const recurCnt=spanCnt-pool.length;
-  const weeks=[];
-  let wStart=new Date(y,m,1);
-  while(wStart.getMonth()===m||weeks.length===0){
-    const wEnd=addDays(wStart,6);
-    weeks.push({s:new Date(wStart),e:wEnd>new Date(y,m+1,0)?new Date(y,m+1,0):wEnd});
-    wStart=addDays(wEnd,1);
-    if(weeks.length>5)break;
-  }
+  const weeks=progressWeeks(y,m);
   const rows=pool.map(t=>{
     return `<tr data-id="${t.id}">
       <td><b>${esc(t.title)}</b><br><span style="font-size:.68rem;color:var(--muted)">${esc(t.type)}</span>${isOverdue(t)?"<br>"+overdueBadge(t):(isLateDone(t)?"<br>"+lateBadge(t):"")}</td>
@@ -967,19 +946,11 @@ function renderMProgress(){
       <td><input type="range" min="0" max="100" step="5" value="${t.progress}" data-prog="${t.id}"><br><span style="font-size:.7rem;color:var(--accent)">${t.progress}%</span></td>
       <td><button class="icon-btn" data-act="edit" data-eid="${t.id}">${I.edit}</button></td>
     </tr>`;}).join("");
-  // 甘特：按周 5 列
+  // 甘特：按周分格，格子几何来自 core
   const ganttRows=pool.map(t=>{
-    let bars="";
-    weeks.forEach((w,wi)=>{
-      const ws=fmt(w.s),we=fmt(w.e);
-      if(t.start<=we&&t.end>=ws){
-        const ovS=t.start>ws?t.start:ws, ovE=t.end<we?t.end:we;
-        const totalW=(w.e-w.s)/86400000+1;
-        const l=(parseD(ovS)-w.s)/86400000/totalW*100;
-        const wd=((parseD(ovE)-parseD(ovS))/86400000+1)/totalW*100;
-        bars+=`<div class="gantt-cell"><div class="gantt-bar" data-id="${t.id}" style="left:${l}%;width:${wd}%" title="${esc(t.title)} ${ovS}~${ovE}"><i style="width:${t.progress}%"></i><span>${t.progress}%</span></div></div>`;
-      }else bars+='<div class="gantt-cell"></div>';
-    });
+    const bars=ganttCells(t,weeks).map(g=>g===null
+      ?'<div class="gantt-cell"></div>'
+      :`<div class="gantt-cell"><div class="gantt-bar" data-id="${t.id}" style="left:${g.left}%;width:${g.width}%" title="${esc(t.title)} ${g.ovS}~${g.ovE}"><i style="width:${t.progress}%"></i><span>${t.progress}%</span></div></div>`).join("");
     return `<div class="gantt-row"><div class="gname" title="${esc(t.title)}">${esc(t.title)}</div>${bars}</div>`;
   }).join("");
   const html=`<div class="card" style="margin-bottom:14px"><h3>${I.list}${m+1} 月任务进度表${recurCnt?`<span class="tag outline" style="margin-left:auto" title="另有 ${recurCnt} 条循环任务横跨本月，它没有单一进度值，不进本表与甘特">${recurCnt} 条循环未列入</span>`:""}</h3>
@@ -1012,20 +983,18 @@ function renderMProgress(){
 function renderYear(){
   const y=parseD(state.selDate).getFullYear();
   const pool=filteredTasks();
-  const yrMatch=t=>t.start.slice(0,4)==String(y)||t.end.slice(0,4)==String(y);
-  const yearTasks=statsPool(pool).filter(yrMatch);
-  const recurCnt=pool.filter(t=>t.recur&&yrMatch(t)).length;
+  const {yearTasks,recurCount:recurCnt}=yearSplit(y,pool);
   const s=statsOf(yearTasks);
   let months="";
   for(let mo=0;mo<12;mo++){
-    const first=new Date(y,mo,1);const off=(first.getDay()+6)%7;const dim=new Date(y,mo+1,0).getDate();
-    let cells="";for(let i=0;i<off;i++)cells+="<td></td>";
-    for(let dd=1;dd<=dim;dd++){
-      const ds=fmt(new Date(y,mo,dd));
-      cells+=`<td class="${ds===fmt(TODAY)?'today':''} ${tasksOn(ds,pool).length?'has-task':''}${dayTint(ds)}" data-date="${ds}" style="font-size:.62rem;padding:2px"><span class="dtop">${dayMarkBadge(ds)}${dd}</span>${dayInfoBadge(ds)}</td>`;
-      if((off+dd)%7===0)cells+="</tr><tr>";
-    }
-    const mTasks=yearTasks.filter(t=>t.start<=`${y}-${pad(mo+1)}-31`&&t.end>=`${y}-${pad(mo+1)}-01`);
+    const gm=yearMonthDays(y,mo,pool);
+    let cells="";for(let i=0;i<gm.off;i++)cells+="<td></td>";
+    gm.days.forEach(c=>{
+      const ds=c.ds;
+      cells+=`<td class="${ds===fmt(TODAY)?'today':''} ${c.hasTask?'has-task':''}${dayTint(ds)}" data-date="${ds}" style="font-size:.62rem;padding:2px"><span class="dtop">${dayMarkBadge(ds)}${c.dd}</span>${dayInfoBadge(ds)}</td>`;
+      if((gm.off+c.dd)%7===0)cells+="</tr><tr>";
+    });
+    const mTasks=monthSlice(yearTasks,y,mo);
     const ms=statsOf(mTasks);
     months+=`<div class="year-month"><h4>${mo+1} 月 <span style="float:right;font-size:.68rem;color:var(--muted)">${ms.done}/${ms.total} · ${ms.rate}%</span></h4>
       <table class="mini-cal"><thead><tr><th>一</th><th>二</th><th>三</th><th>四</th><th>五</th><th>六</th><th>日</th></tr></thead><tbody><tr>${cells}</tr></tbody></table></div>`;
@@ -1059,11 +1028,7 @@ function drawYearChart(y,pool){
   const W=cv.clientWidth,H=cv.clientHeight;
   cv.width=W*dpr;cv.height=H*dpr;
   const ctx=cv.getContext("2d");ctx.scale(dpr,dpr);
-  const data=Array.from({length:12},(_,mo)=>{
-    const ms=`${y}-${pad(mo+1)}`;
-    const l=pool.filter(t=>t.start<=ms+"-31"&&t.end>=ms+"-01");
-    return l.length?Math.round(l.filter(t=>t.status==="done").length/l.length*100):0;
-  });
+  const data=monthlyRates(y,pool);
   const cs=getComputedStyle(document.body);
   const accent=cs.getPropertyValue("--accent").trim(),line=cs.getPropertyValue("--grid-line").trim(),muted=cs.getPropertyValue("--muted").trim();
   const bw=W/12;
@@ -1084,12 +1049,8 @@ function font(ctx,s){ctx.font=s+' "PingFang SC","Microsoft YaHei",sans-serif';}
 /* ================= 看板视图 ================= */
 function renderKanban(){
   const all=filteredTasks();
-  const pool=statsPool(all);
-  const recurCnt=all.length-pool.length;
   const mode=state.kanbanMode;
-  let cols;
-  if(mode==="status")cols=[["todo","未开始"],["doing","进行中"],["done","已完成"]];
-  else cols=TYPES.map(t=>[t,t]);
+  const {cols:kanbanCols,recurCount:recurCnt}=kanbanSplit(all,mode);
   let html=`<div class="kanban-switch">
     <button data-km="status" class="${mode==='status'?'active':''}">按状态分列</button>
     <button data-km="type" class="${mode==='type'?'active':''}">按任务类型分列</button>
@@ -1098,8 +1059,8 @@ function renderKanban(){
   </div>
   ${mode==="status"&&!state.kanbanDragHintSeen?'<div class="kanban-drag-hint" role="status"><b>提示</b> 拖拽任务到其他列以更新状态</div>':''}
   <div class="kanban ${mode==='type'?'type-mode':''}">`;
-  cols.forEach(([key,label])=>{
-    const list=pool.filter(t=>mode==="status"?t.status===key:t.type===key);
+  kanbanCols.forEach(col=>{
+    const key=col.key,label=col.label,list=col.tasks;
     html+=`<div class="kanban-col" data-col="${key}"><h4>${esc(label)}<span class="tag">${list.length}</span></h4>
       ${list.map(t=>`<div class="kanban-card" draggable="true" data-id="${t.id}">
         <button class="icon-btn kc-edit" draggable="false" title="编辑任务">${I.edit}</button>

@@ -8,6 +8,9 @@ dist/
 # Qoder 生成缓存
 .qoder/
 
+# 金样本抓取产物（渲染等价对比用，勿提交）
+_golden*.json
+
 # 开发期 UI 预览截图
 *-preview.png
 
