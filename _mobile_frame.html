@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>mobile frame</title>
+<link rel="stylesheet" href="/src/mobile/styles.css">
+</head>
+<body class="m theme-e">
+<div id="mRoot" class="m-root"></div>
+<script type="module">
+import { createApp } from "/src/mobile/shell.js";
+
+/* 桩会话：只验证壳的版式与触控尺寸，不代表任何登录或同步结论 */
+const session = {
+  user: { id: "u1", email: "probe@example.com" },
+  commit() {}, flush() {}, push: async () => ({}), pull: async () => ({}),
+  readCache: () => null, writeCache() {}, auth: { signOut: async () => {} },
+};
+const T = (id, o) => Object.assign({
+  id, title: "任务" + id, type: "工作项目", priority: 2, status: "todo",
+  start: "2026-09-01", end: "2026-09-30", progress: 40, plannedTime: 60, actualTime: 20,
+  course: false, room: "", teacher: "", dow: null, timeSlot: "", goalId: "g1", note: "", doneAt: "", recur: null, doneOn: {},
+}, o);
+const state = {
+  tasks: [
+    T("a1"), T("a2", { status: "done", progress: 100 }), T("a3", { priority: 1 }),
+    T("c1", { title: "高级算法课", course: true, dow: 2, timeSlot: "10:00-11:40", room: "教3-201", teacher: "王老师" }),
+    T("r1", { title: "喝水", recur: { freq: "daily", days: [], mday: 1 }, doneOn: { "2026-09-17": "2026-09-17" } }),
+    T("o1", { title: "体检报告", end: "2026-09-10", status: "todo" }),
+  ],
+  goals: { weekly: [{ id: "g1", title: "本周交付" }], monthly: [{ id: "g2", title: "月度健康" }], yearly: [{ id: "g3", title: "年度学习" }], reviews: [] },
+  view: "day", theme: "e", filters: { keyword: "", year: "", month: "", prio: "", status: "", type: "", slot: "" },
+  selDate: "2026-09-18", kanbanMode: "status", kanbanDragHintSeen: false, onlyOverdue: false, onlyLate: false,
+};
+
+const app = createApp(document.getElementById("mRoot"), session, state);
+app.session = session;
+
+function metrics(tab) {
+  location.hash = "#/" + tab;
+  app.render();
+  const de = document.documentElement;
+  const interactive = [...document.querySelectorAll("button,input,select,textarea")];
+  const heights = interactive.map(e => Math.round(e.getBoundingClientRect().height));
+  const tooSmall = heights.filter(h => h > 0 && h < 44);
+  const rows = [...document.querySelectorAll(".m-row")];
+  const vh = innerHeight;
+  const visibleRows = rows.filter(r => { const b = r.getBoundingClientRect(); return b.top < vh && b.bottom > 0; }).length;
+  const px = sel => { const e = document.querySelector(sel); return e ? getComputedStyle(e).fontSize : null; };
+  return {
+    tab,
+    rootFont: getComputedStyle(document.documentElement).fontSize,
+    titleFont: px(".m-row .title"), metaFont: px(".m-row .meta"),
+    rowsTotal: rows.length, rowsInViewport: visibleRows,
+    minTap: heights.length ? Math.min(...heights) : null,
+    tapsUnder44: tooSmall.length,
+    hOverflow: de.scrollWidth - de.clientWidth,
+    vScrollNeeded: de.scrollHeight > vh,
+    docH: de.scrollHeight, vh,
+  };
+}
+window.__report = () => ["today", "goals", "board", "me"].map(metrics);
+</script>
+</body>
+</html>

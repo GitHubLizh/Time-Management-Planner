@@ -1,0 +1,134 @@
+/* ============ 移动壳样式基线 ============
+   设计约束来自这轮真机反馈：布局拥挤、字太小。所以这里的默认值不是把桌面缩小，
+   而是按"一屏一件主要的事"来定：16px 起步的字号、44px 以上的触控目标、单列、
+   次要信息一律折进详情，不在列表行里铺开。 */
+:root{
+  --radius:12px;
+  --ink:#26231f; --paper:#f7f3ec; --card:#fffdf8; --line:#d8d2c6;
+  --accent:#e8683c; --accent-soft:#fbe9e0; --cream:#fff6ea; --muted:#8a8177;
+  --grid-line:#e6dfd2; --banner-bg:#26231f; --banner-fg:#fdfaf4;
+  --p1:#c0362c; --p2:#e8912a; --p3:#2e7db7; --p4:#9aa3ad;
+  --overdue:#8c2f39; --ok:#3f8f5f; --shadow:0 1px 3px rgba(60,50,40,.10);
+  --tab-h:56px;
+}
+body.theme-i{
+  --ink:#2c3140; --paper:#f2f3f7; --card:#fdfdfe; --line:#ccd2de;
+  --accent:#6b83a8; --accent-soft:#e3e9f3; --cream:#f4f2fa; --muted:#7d8496;
+  --grid-line:#dde1ea; --banner-bg:#2c3140; --banner-fg:#f4f5fa; --shadow:0 1px 3px rgba(50,60,90,.10);
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html{font-size:16px}                       /* 桌面是 15px；小屏一上来就更小是"字太小"的直接来源 */
+body{
+  font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  color:var(--ink);background:var(--paper);line-height:1.6;
+  min-height:100dvh;
+  padding-bottom:calc(var(--tab-h) + env(safe-area-inset-bottom));
+}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:none}
+input,select,textarea{font:inherit;color:inherit}
+a{color:var(--accent)}
+
+/* ---------- 结构 ---------- */
+.m-root{max-width:760px;margin:0 auto}      /* 平板也走这套壳，只是把行宽上限放开 */
+.m-head{
+  position:sticky;top:0;z-index:20;background:var(--paper);
+  padding:calc(10px + env(safe-area-inset-top)) 14px 8px;
+  display:flex;align-items:center;gap:10px;
+}
+.m-head h1{font-size:1.1rem;font-weight:700;letter-spacing:.02em}
+.m-head .sub{font-size:.72rem;color:var(--muted);letter-spacing:.14em}
+.m-head .right{margin-left:auto;display:flex;align-items:center;gap:8px}
+.m-body{padding:0 14px 18px}
+
+.m-tabs{
+  position:fixed;left:0;right:0;bottom:0;z-index:30;
+  display:flex;background:var(--card);border-top:1px solid var(--line);
+  padding-bottom:env(safe-area-inset-bottom);height:calc(var(--tab-h) + env(safe-area-inset-bottom));
+}
+.m-tabs button{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  min-height:44px;font-size:.7rem;color:var(--muted);
+}
+.m-tabs button.on{color:var(--accent);font-weight:700}
+.m-tabs button svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.7}
+
+/* ---------- 通用块 ---------- */
+.m-card{background:var(--card);border:1.5px solid var(--line);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow)}
+.m-card + .m-card{margin-top:12px}
+.m-card h2{font-size:.95rem;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.m-card h2 .count{margin-left:auto;font-size:.72rem;color:var(--muted);font-weight:400}
+.m-empty{font-size:.82rem;color:var(--muted);text-align:center;padding:20px 0}
+.m-row{
+  display:flex;align-items:center;gap:12px;min-height:56px;padding:10px 0;
+  border-bottom:1px dashed var(--line);
+}
+.m-row:last-child{border-bottom:none}
+.m-row .title{flex:1;min-width:0;font-size:.95rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.m-row .meta{font-size:.76rem;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.m-row.done .title{text-decoration:line-through;color:var(--muted);font-weight:400}
+.m-chk{
+  flex:0 0 auto;width:44px;height:44px;margin-left:-10px;border-radius:10px;
+  display:flex;align-items:center;justify-content:center;border:1.5px solid var(--line);background:var(--card);
+}
+.m-chk svg{width:20px;height:20px;stroke:var(--accent);fill:none;stroke-width:2.4;display:none}
+.m-row.done .m-chk svg{display:block}
+.m-row.done .m-chk{background:var(--accent-soft);border-color:var(--accent)}
+.prio{flex:0 0 auto;width:10px;height:10px;border-radius:50%}
+.prio.p1{background:var(--p1)}.prio.p2{background:var(--p2)}.prio.p3{background:var(--p3)}.prio.p4{background:var(--p4)}
+.bar{height:6px;background:var(--grid-line);border-radius:3px;overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:3px}
+
+.m-datebar{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.m-datebar .day{flex:1;text-align:center;font-size:.95rem;font-weight:700}
+.m-datebar .day .wd{display:block;font-size:.72rem;font-weight:400;color:var(--muted)}
+.m-nav{width:44px;height:44px;border:1.5px solid var(--line);border-radius:10px;background:var(--card);font-size:1.1rem}
+.m-today{padding:0 12px;height:44px;border:1.5px solid var(--accent);border-radius:10px;background:var(--accent-soft);color:var(--accent);font-size:.82rem;font-weight:700}
+.m-fab{
+  position:fixed;right:16px;bottom:calc(var(--tab-h) + 16px + env(safe-area-inset-bottom));z-index:25;
+  width:56px;height:56px;border-radius:50%;background:var(--accent);color:#fff;font-size:1.6rem;
+  box-shadow:0 6px 18px rgba(232,104,60,.4);display:flex;align-items:center;justify-content:center;
+}
+.m-btn{width:100%;min-height:48px;border-radius:10px;background:var(--ink);color:var(--paper);font-size:.95rem;font-weight:600}
+.m-btn.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line)}
+.m-btn:active{transform:translateY(1px);opacity:.85}
+
+/* ---------- 登录 ---------- */
+.m-login{min-height:100dvh;display:flex;flex-direction:column;justify-content:center;padding:20px 18px calc(20px + env(safe-area-inset-bottom))}
+.m-login .brand{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.m-login .brand svg{width:30px;height:30px;stroke:var(--accent);fill:none;stroke-width:1.6}
+.m-login h1{font-size:1.3rem}
+.m-login .lead{font-size:.84rem;color:var(--muted);margin:6px 0 22px}
+.m-field{display:grid;gap:6px;margin-bottom:14px}
+.m-field label{font-size:.78rem;color:var(--muted)}
+.m-field input{width:100%;min-height:48px;padding:12px 14px;border:1.5px solid var(--line);border-radius:10px;background:var(--card);font-size:16px}
+.m-alt{display:flex;gap:10px;margin-top:10px}
+.m-alt button{flex:1;min-height:44px;font-size:.82rem;border:1.5px dashed var(--line);border-radius:10px}
+.m-oauth{margin-top:18px;display:grid;gap:9px}
+.m-oauth button{min-height:48px;border:1.5px solid var(--line);border-radius:10px;background:var(--card);font-size:.88rem;display:flex;align-items:center;justify-content:center;gap:8px}
+.m-oauth svg{width:18px;height:18px}
+.m-msg{min-height:1.4em;font-size:.8rem;color:var(--accent);margin-top:10px}
+.m-split{display:flex;align-items:center;gap:10px;margin-top:18px;font-size:.72rem;color:var(--muted)}
+.m-split::before,.m-split::after{content:"";flex:1;height:1px;background:var(--line)}
+
+/* ---------- 动作面板（取代拖拽与桌面弹窗） ---------- */
+.m-sheet-mask{position:fixed;inset:0;background:rgba(30,25,20,.45);z-index:40;display:none}
+.m-sheet-mask.show{display:block}
+.m-sheet{
+  position:fixed;left:0;right:0;bottom:0;z-index:41;background:var(--card);
+  border-radius:16px 16px 0 0;border-top:1.5px solid var(--ink);
+  padding:6px 16px calc(18px + env(safe-area-inset-bottom));max-height:88dvh;overflow-y:auto;
+  transform:translateY(100%);transition:transform .22s ease;
+}
+.m-sheet.show{transform:none}
+.m-sheet .grab{width:38px;height:4px;border-radius:2px;background:var(--line);margin:6px auto 12px}
+.m-sheet h3{font-size:1rem;margin-bottom:12px}
+
+/* ---------- 平板：同一套壳加宽，主内容两栏 ---------- */
+@media(min-width:700px){
+  :root{--tab-h:52px}
+  .m-root{max-width:1000px}
+  .m-tabs{left:0;right:0}
+  .m-cols{display:grid;grid-template-columns:minmax(300px,1fr) minmax(300px,1.2fr);gap:16px;align-items:start}
+  .m-detail{position:sticky;top:70px}
+  .m-sheet{left:auto;right:16px;bottom:calc(var(--tab-h) + 16px);max-width:420px;border-radius:16px;border:1.5px solid var(--ink)}
+}

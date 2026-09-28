@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><title>mobile shell probe</title>
+<style>body{margin:0;background:#222;font-family:sans-serif}iframe{border:0;display:block;background:#fff}</style>
+</head>
+<body>
+<iframe id="p" src="/_mobile_frame.html" width="390" height="844"></iframe>
+<script>
+// 读数由 frame 内自己算，这里只负责把结果取回来打印
+window.read = () => document.getElementById('p').contentWindow.__report();
+</script>
+</body>
+</html>

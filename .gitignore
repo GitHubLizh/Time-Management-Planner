@@ -8,6 +8,9 @@ dist/
 # Qoder 生成缓存
 .qoder/
 
+# 移动壳版式探针的输出（读数用，勿提交）
+_mobile_metrics.json
+
 # 金样本抓取产物（渲染等价对比用，勿提交）
 _golden*.json
 
