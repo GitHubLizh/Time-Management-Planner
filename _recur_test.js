@@ -511,6 +511,10 @@ const pushSrc=S(9),payload=F("buildPushPayload")("u1",pushSrc);
 pushSrc.tasks.push({id:"x"});
 eq("载荷是深拷贝，序列化期间本地再改不影响已构造的行",payload.state.tasks.length,0);
 eq("载荷线格式为 user_id + state",Object.keys(payload),["user_id","state"]);
+eq("首次装载：云端行优先于本机缓存",F("decideInitialSource")({tasks:[{id:"c"}]},{tasks:[{id:"l"}]}).state.tasks[0].id,"c");
+eq("首次装载标记来自云端",[F("decideInitialSource")({tasks:[]},null).fromCloud,F("decideInitialSource")(null,{tasks:[]}).fromCloud],[true,false]);
+eq("云端与缓存都无 → state 为 null 交由壳回落默认",F("decideInitialSource")(null,null).state,null);
+eq("缓存回退时仍能拿到那份状态",F("decideInitialSource")(null,{tasks:[{id:"l"}]}).state.tasks[0].id,"l");
 
 console.log("\n== id 选择器对账（桩 DOM 不会因 id 不存在而抛错，只能靠静态比对）==");
 {

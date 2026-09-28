@@ -31,3 +31,9 @@ export function decidePull(state,remoteAt){
 export function buildPushPayload(userId,state){
   return {user_id:userId,state:JSON.parse(JSON.stringify(state))};
 }
+/* 首次装载的数据源：云端行优先于本机缓存（缓存可能是另一台设备的旧数据）。
+   云端还没有这一行时 fromCloud=false，壳据此把本机缓存或空白状态迁移上去，
+   并且此后不能因为"本地有缓存"就回写覆盖 —— 那是旧缓存盖掉新数据的入口。 */
+export function decideInitialSource(remoteState,cachedState){
+  return {state:remoteState||cachedState||null,fromCloud:!!remoteState};
+}

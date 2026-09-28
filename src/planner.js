@@ -10,7 +10,7 @@ import { filteredTasks, tasksOn, splitId, isOverdue, overdueDays, overdueList, s
   SLOT_TIMES, scheduleGrid, dayGroups, weekDaysOf, miniCalGrid, weekColumns, dailyCounts, monthTasksOf, monthGrid, progressWeeks, monthSpanFilter, ganttCells, yearSplit, yearMonthDays, monthSlice, monthlyRates, kanbanSplit } from "./core/selectors.js";
 import { goalsOf, goalLevel, goalById, goalTasks, goalVisibleThisWeek, taskGoal, goalProgress } from "./core/goals.js";
 import { toggleTaskDone, duplicateTask, deleteTask as deleteTaskData, bulkToggleDone, bulkDelete, saveTask, saveGoal, deleteGoal as deleteGoalData, moveGoal, applyDrop, applyKanbanDrop } from "./core/mutations.js";
-import { remoteUpdatedAt, localUpdatedAt, ensureUpdatedAt, decidePush, decidePull, buildPushPayload } from "./core/sync.js";
+import { remoteUpdatedAt, localUpdatedAt, ensureUpdatedAt, decidePush, decidePull, buildPushPayload, decideInitialSource } from "./core/sync.js";
 
 /* 拼音实现由壳注入：core 不认识 pinyin-pro，小程序可以换成别的或不注入（首字母降级为不匹配） */
 setPinyinImpl(pinyin);
@@ -263,10 +263,10 @@ async function activateSession(user){
   const {data,error}=await fetchRemoteRow(user);
   if(request!==activationId||currentUser!==user)return;
   if(error){currentUser=null;showAuthScreen("无法读取云端数据，请稍后重试。");return;}
-  const nextState=data&&data.state||readState(cacheKey(user.id));
-  setState(nextState||defaultState());
+  const src=decideInitialSource(data&&data.state,readState(cacheKey(user.id)));
+  setState(src.state||defaultState());
   writeCache();
-  dirty=!data; // 云端还没有这一行：把本机缓存（或空白状态）迁移上去；已有云端数据则不再回写，避免旧缓存覆盖
+  dirty=!src.fromCloud; // 云端还没有这一行：把本机缓存（或空白状态）迁移上去；已有云端数据则不再回写，避免旧缓存覆盖
   initializePlanner();
   showPlanner(user);
   if(dirty)await saveRemote();
