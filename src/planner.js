@@ -959,13 +959,16 @@ function renderDay(){
     calCells+=`<td class="${cls}${dayTint(ds)}" data-date="${ds}"><span class="dtop">${dayMarkBadge(ds)}${dd}</span>${dayInfoBadge(ds)}</td>`;
     if((startOffset+dd)%7===0)calCells+="</tr><tr>";
   }
+  const ty=TODAY.getFullYear();
+  let yearOpts="";for(let yy=Math.min(y,ty)-1;yy<=Math.max(y,ty)+1;yy++)yearOpts+=`<option value="${yy}"${yy===y?" selected":""}>${yy}</option>`;
+  let monthOpts="";for(let mm=0;mm<12;mm++)monthOpts+=`<option value="${mm}"${mm===m?" selected":""}>${String(mm+1).padStart(2,"0")}月</option>`;
   const s=statsOf(statsPool(dayTasks));
   const planSum=normal.reduce((a,t)=>a+(+t.plannedTime||0),0);
   const actSum=normal.reduce((a,t)=>a+(+t.actualTime||0),0);
   const od=overdueList(state.tasks).sort((a,b)=>overdueDays(b)-overdueDays(a));
   const html=`<div class="day-layout">
     <div>
-      <div class="card" style="margin-bottom:14px"><h3>${I.clock}<button class="cal-nav" data-cal-nav="-1" title="上一月">‹</button><span class="cal-month">${y} 年 ${m+1} 月</span><button class="cal-nav" data-cal-nav="1" title="下一月">›</button><button class="cal-nav today-btn" data-cal-today title="回到今天">今</button></h3>
+      <div class="card" style="margin-bottom:14px"><h3 class="cal-head"><button class="cal-nav" data-cal-nav="-1" title="上一月">‹</button><select class="cal-sel cal-year" data-cal-year title="选择年份">${yearOpts}</select><select class="cal-sel cal-month" data-cal-month title="选择月份">${monthOpts}</select><button class="cal-nav" data-cal-nav="1" title="下一月">›</button><button class="cal-nav today-btn" data-cal-today title="回到今天">回到今天</button></h3>
         <table class="mini-cal mini-cal-wide"><thead><tr><th>一</th><th>二</th><th>三</th><th>四</th><th>五</th><th>六</th><th>日</th></tr></thead>
         <tbody><tr>${calCells}</tr></tbody></table>
       </div>
@@ -1041,6 +1044,11 @@ function renderDay(){
   }));
   const todayBtn=v.querySelector("[data-cal-today]");
   if(todayBtn)todayBtn.addEventListener("click",()=>{exitBulk();calNav=null;state.selDate=todayStr;save();renderAll();});
+  const ySel=v.querySelector("[data-cal-year]"),mSel=v.querySelector("[data-cal-month]");
+  [ySel,mSel].forEach(sel=>sel.addEventListener("change",()=>{
+    calNav={y:+ySel.value,m:+mSel.value,anchor:state.selDate};
+    renderDay();
+  }));
   v.querySelectorAll(".od-row").forEach(r=>r.addEventListener("click",()=>{
     exitBulk();calNav=null;state.selDate=r.dataset.odDate;save();renderAll();
   }));

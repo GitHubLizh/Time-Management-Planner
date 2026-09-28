@@ -327,11 +327,15 @@ table.timetable td.cell{height:34px;padding:2px;position:relative}
 .day-cell .dnum{display:block}
 .day-cell .dname{text-align:left}
 .year-month .dname{display:none} /* 年视图格子太小，不显信息行 */
-.cal-nav{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:6px;min-width:24px;height:22px;padding:0 7px;font-size:.85rem;line-height:1;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center}
+.cal-head{gap:4px}
+.cal-nav{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:6px;min-width:24px;height:22px;padding:0 7px;font-size:.85rem;line-height:1;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;flex:none;white-space:nowrap}
 .cal-nav:hover{border-color:var(--accent);color:var(--accent)}
-.cal-nav.today-btn{margin-left:auto;background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700;font-size:.8rem;padding:0 9px}
+.cal-nav.today-btn{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700;font-size:.8rem;padding:0 6px}
 .cal-nav.today-btn:hover{border-color:var(--accent);color:#fff;filter:brightness(1.1)}
-.cal-month{min-width:86px;text-align:center;font-variant-numeric:tabular-nums}
+.cal-sel{appearance:none;-webkit-appearance:none;border:1px solid var(--line);background:var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M1 1l3 3 3-3' stroke='%238a8a8a' fill='none' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 4px center;border-radius:6px;color:var(--ink);height:22px;font-size:.8rem;font-family:inherit;cursor:pointer;padding:0 15px 0 2px;text-align:center;text-align-last:center;font-variant-numeric:tabular-nums;flex:none}
+.cal-sel:hover,.cal-sel:focus{border-color:var(--accent);outline:none}
+.cal-year{width:64px}
+.cal-month{width:56px}
 .quad-legend{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:.7rem}
 .quad-legend div{border:1.5px solid var(--line);border-radius:7px;padding:6px 8px}
 .quad-legend b{display:block;font-size:.72rem}
