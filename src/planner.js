@@ -10,6 +10,7 @@ import { filteredTasks, tasksOn, splitId, isOverdue, overdueDays, overdueList, s
   SLOT_TIMES, scheduleGrid, dayGroups, weekDaysOf, miniCalGrid, weekColumns, dailyCounts, monthTasksOf, monthGrid, progressWeeks, monthSpanFilter, ganttCells, yearSplit, yearMonthDays, monthSlice, monthlyRates, kanbanSplit } from "./core/selectors.js";
 import { goalsOf, goalLevel, goalById, goalTasks, goalVisibleThisWeek, taskGoal, goalProgress } from "./core/goals.js";
 import { toggleTaskDone, duplicateTask, deleteTask as deleteTaskData, bulkToggleDone, bulkDelete, saveTask, saveGoal, deleteGoal as deleteGoalData, moveGoal, applyDrop, applyKanbanDrop } from "./core/mutations.js";
+import { remoteUpdatedAt, localUpdatedAt, ensureUpdatedAt, decidePush, decidePull, buildPushPayload } from "./core/sync.js";
 
 /* 拼音实现由壳注入：core 不认识 pinyin-pro，小程序可以换成别的或不注入（首字母降级为不匹配） */
 setPinyinImpl(pinyin);
@@ -92,12 +93,11 @@ async function fetchRemoteRow(user){
 async function saveRemote(){
   if(!currentUser||!supabaseClient)return false;
   const user=currentUser;
-  if(!(state.updatedAt>0))state.updatedAt=Date.now();
+  ensureUpdatedAt(state,Date.now());
   const {data,error}=await fetchRemoteRow(user);
   if(user!==currentUser)return false;
-  const remoteAt=error?0:+((data&&data.state&&data.state.updatedAt)||0);
-  if(remoteAt>(state.updatedAt||0)){applyRemoteState(data.state);return false;} // 云端比本地新：以远端为准，放弃本次覆盖
-  const row={user_id:user.id,state:JSON.parse(JSON.stringify(state))};
+  if(decidePush(state,remoteUpdatedAt(data,error)).action==="adopt-remote"){applyRemoteState(data.state);return false;} // 云端比本地新：以远端为准，放弃本次覆盖
+  const row=buildPushPayload(user.id,state);
   const {error:upError}=await supabaseClient.from("planner_states").upsert(row,{onConflict:"user_id"});
   if(user!==currentUser)return false;
   if(upError){setAuthMessage("云端保存失败，请检查网络后重试。");return false;}
@@ -116,18 +116,18 @@ function pullRemote(){
   const user=currentUser;
   fetchRemoteRow(user).then(({data,error})=>{
     if(error||user!==currentUser||!data||!data.state)return;
-    if(+(data.state.updatedAt||0)>(state.updatedAt||0))applyRemoteState(data.state);
+    if(decidePull(state,+(data.state.updatedAt||0)))applyRemoteState(data.state);
   }).finally(()=>{pullBusy=false;});
 }
 function flushRemoteSync(){
   if(!dirty||!currentUser||!supabaseConfig||!accessToken)return;
   clearTimeout(syncTimer);
-  if(!(state.updatedAt>0))state.updatedAt=Date.now();
+  ensureUpdatedAt(state,Date.now());
   try{ // 常规 fetch 在页面卸载时会被浏览器取消，keepalive 请求能保证送达（请求体上限 64KB）
     fetch(supabaseConfig.url+"/rest/v1/planner_states?on_conflict=user_id",{
       method:"POST",
       headers:{apikey:supabaseConfig.anonKey,Authorization:"Bearer "+accessToken,"Content-Type":"application/json",Prefer:"resolution=merge-duplicates,return:minimal"},
-      body:JSON.stringify([{user_id:currentUser.id,state:JSON.parse(JSON.stringify(state))}]),
+      body:JSON.stringify([buildPushPayload(currentUser.id,state)]),
       keepalive:true
     });
     dirty=false;

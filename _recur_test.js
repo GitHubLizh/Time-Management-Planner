@@ -493,6 +493,25 @@ F("taskById")("a1").goalId="g9"; // 撤销前已被手动改走
 F("deleteGoal")("g1").undo();
 eq("撤销不覆盖手动改走的关联",F("taskById")("a1").goalId,"g9");
 
+/* ================= 同步决策规则（core/sync） =================
+   小程序/App 要复刻的就是这几条时间戳口径，所以把它们从壳里抽出来单独钉住 */
+console.log("\n== 同步决策规则 ==");
+const S=o=>({tasks:[],goals:{weekly:[],monthly:[],yearly:[],reviews:[]},filters:{keyword:""},updatedAt:o});
+eq("远端读失败按 0 处理",F("remoteUpdatedAt")({state:{updatedAt:99}},{message:"boom"}),0);
+eq("远端无行按 0 处理",F("remoteUpdatedAt")({state:null},null),0);
+eq("远端时间戳取数字值",F("remoteUpdatedAt")({state:{updatedAt:"100"}},null),100);
+eq("远端更新 → 放弃本次覆盖",F("decidePush")(S(50),100).action,"adopt-remote");
+eq("远端相等 → 照常推送（不是相等就放弃）",F("decidePush")(S(100),100).action,"push");
+eq("本地更新 → 照常推送",F("decidePush")(S(200),100).action,"push");
+eq("拉取：远端严格更大才落地",[F("decidePull")(S(50),100),F("decidePull")(S(100),100),F("decidePull")(S(200),100)],[true,false,false]);
+const st0=S(0);
+eq("从未编辑过时补当前时刻",[F("ensureUpdatedAt")(st0,777),st0.updatedAt],[777,777]);
+eq("已有时间戳不被改写",[F("ensureUpdatedAt")(S(500),777),S(500).updatedAt],[500,500]);
+const pushSrc=S(9),payload=F("buildPushPayload")("u1",pushSrc);
+pushSrc.tasks.push({id:"x"});
+eq("载荷是深拷贝，序列化期间本地再改不影响已构造的行",payload.state.tasks.length,0);
+eq("载荷线格式为 user_id + state",Object.keys(payload),["user_id","state"]);
+
 console.log("\n== id 选择器对账（桩 DOM 不会因 id 不存在而抛错，只能靠静态比对）==");
 {
   const declared=new Set([...html.matchAll(/\bid="([\w-]+)"/g),...src.matchAll(/\bid="([\w-]+)"/g)].map(m=>m[1]));
