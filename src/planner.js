@@ -1,40 +1,19 @@
-"use strict";
 import { pinyin } from "pinyin-pro";
-import { Solar } from "lunar-javascript";
+import { TYPES, PRIO_NAMES, STATUS_NAMES, RECUR_RULES, DOW_NAMES, GOAL_LEVELS } from "./core/constants.js";
+import { pad, fmt, parseD, addDays, mondayOf, monthRange, fmtDur } from "./core/dates.js";
+import { today as TODAY } from "./core/clock.js";
+import { CN_HOLIDAY, HOLIDAY_SRC, SOLAR_FESTIVALS, applyHolidayYear, refreshHolidayYear, isLegalWorkday, lunarOf } from "./core/holidays.js";
+import { setPinyinImpl, slotOf, titleMatchesKeyword } from "./core/filters.js";
+import { occursOn, recurText, nextOccurrence, prevOccurrence, occurrencesBetween, occDone, toggleOcc, recurDoneIn, recurStreak, statsPool } from "./core/recur.js";
+import { state, setState, defaultState, mk, newGoalId, taskById } from "./core/schema.js";
+import { filteredTasks, tasksOn, splitId, isOverdue, overdueDays, overdueList, syncDoneAt, isLateDone, lateDays, lateList, statsOf, hasActiveFilter } from "./core/selectors.js";
+import { goalsOf, goalLevel, goalById, goalTasks, goalTasksOn, goalVisibleThisWeek, taskGoal, goalProgress } from "./core/goals.js";
+
+/* 拼音实现由壳注入：core 不认识 pinyin-pro，小程序可以换成别的或不注入（首字母降级为不匹配） */
+setPinyinImpl(pinyin);
 
 /* ================= 常量与图标 ================= */
-const TYPES=["生活居家","饮食健康","运动健身","形象管理","心灵成长","工作项目","财务管理","学习成长","签到奖励"];
 const TYPE_COLORS=["#c98a5b","#7fa35a","#5a9a8f","#b58bb5","#8f86c9","#5b84c4","#c4a24a","#4a86c8","#c96f7a"];
-const PRIO_NAMES={1:"P1 重要紧急",2:"P2 重要不紧急",3:"P3 紧急不重要",4:"P4 不紧急不重要"};
-const STATUS_NAMES={todo:"未开始",doing:"进行中",done:"已完成"};
-const RECUR_RULES={daily:"每天重复",workday:"每个法定工作日（周一至周五，扣除节假日·含调休补班）",weekly:"每周固定几天",monthly:"每月固定一天"};
-const DOW_NAMES=["周日","周一","周二","周三","周四","周五","周六"];
-/* 法定工作日判定数据：口径为国务院办公厅放假安排（off=放假日，makeup=调休补班的周末，均为 MM-DD）。
-   内置 2025/2026 作离线兜底；运行时从 holiday-cn 镜像（逐条解析国务院通知、公布后自动更新）同步当年与次年。
-   HOLIDAY_SRC 记录每年口径来源：builtin=内置 / live=已同步官方源；两者皆无的年份退回普通周一至周五并在界面如实标注。 */
-const CN_HOLIDAY_BUILTIN={
-  "2025":{off:["01-01","01-28","01-29","01-30","01-31","02-01","02-02","02-03","02-04","04-04","04-05","04-06","05-01","05-02","05-03","05-04","05-05","05-31","06-01","06-02","10-01","10-02","10-03","10-04","10-05","10-06","10-07","10-08"],
-          makeup:["01-26","02-08","04-27","09-28","10-11"],
-          names:[["01-01","01-01","元旦"],["01-28","02-04","春节"],["04-04","04-06","清明节"],["05-01","05-05","劳动节"],["05-31","06-02","端午节"],["10-01","10-08","国庆节、中秋节"]]},
-  "2026":{off:["01-01","01-02","01-03","02-15","02-16","02-17","02-18","02-19","02-20","02-21","02-22","02-23","04-04","04-05","04-06","05-01","05-02","05-03","05-04","05-05","06-19","06-20","06-21","09-25","09-26","09-27","10-01","10-02","10-03","10-04","10-05","10-06","10-07"],
-          makeup:["01-04","02-14","02-28","05-09","09-20","10-10"],
-          names:[["01-01","01-03","元旦"],["02-15","02-23","春节"],["04-04","04-06","清明节"],["05-01","05-05","劳动节"],["06-19","06-21","端午节"],["09-25","09-27","中秋节"],["10-01","10-07","国庆节"]]}
-};
-const CN_HOLIDAY={};
-const HOLIDAY_SRC={};
-function buildHolidayYear(y,offMMDD,makeupMMDD,nameRanges){
-  const ok=s=>typeof s==="string"&&/^\d{2}-\d{2}$/.test(s),p=m=>y+"-"+m;
-  const names={};
-  (Array.isArray(nameRanges)?nameRanges:[]).forEach(r=>{
-    if(!Array.isArray(r)||r.length!==3)return;
-    const [a,b,name]=r;if(!ok(a)||!ok(b)||typeof name!=="string"||!name)return;
-    let d=parseD(p(a)),end=parseD(p(b));
-    while(d<=end){names[fmt(d)]=name;d.setDate(d.getDate()+1);}
-  });
-  return {off:new Set(offMMDD.filter(ok).map(p)),makeup:new Set(makeupMMDD.filter(ok).map(p)),names};
-}
-for(const y in CN_HOLIDAY_BUILTIN){const h=CN_HOLIDAY_BUILTIN[y];CN_HOLIDAY[y]=buildHolidayYear(y,h.off,h.makeup,h.names);HOLIDAY_SRC[y]="builtin";}
-const GOAL_LEVELS=[["weekly","周"],["monthly","月"],["yearly","年"]];
 const VIEWS=[["schedule","课表"],["day","日"],["week","周"],["month","月历"],["mprogress","月进度"],["year","年"],["kanban","看板"]];
 const VIEW_ICONS={
   schedule:'<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M9 4v17M15 4v17"/>',
@@ -65,13 +44,6 @@ const I={
   chev:icon('<path d="M9 6l6 6-6 6"/>')
 };
 
-/* ================= 日期工具 ================= */
-function pad(n){return String(n).padStart(2,"0");}
-function fmt(d){return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());}
-function parseD(s){const[a,b,c]=s.split("-").map(Number);return new Date(a,b-1,c);}
-function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}
-function mondayOf(d){const x=new Date(d);const w=(x.getDay()+6)%7;x.setDate(x.getDate()-w);x.setHours(0,0,0,0);return x;}
-const TODAY=new Date();TODAY.setHours(0,0,0,0);
 /* TODAY 会被 rollDate() 就地推进，使页面跨零点后逾期判定与"今日"高亮自愈 */
 function rollDate(){
   const now=new Date();now.setHours(0,0,0,0);
@@ -84,13 +56,9 @@ function rollDate(){
   return true;
 }
 
-let _id=1;
-function mk(o){return Object.assign({title:"",type:"学习成长",priority:2,status:"todo",start:fmt(TODAY),end:fmt(TODAY),progress:0,plannedTime:60,actualTime:0,course:false,room:"",teacher:"",dow:null,timeSlot:"",goalId:"",note:"",doneAt:"",recur:null,doneOn:{}},o,{id:"t"+(_id++)});} // id 放最后：复制时传入整条任务也不能沿用源 id
 
 /* ================= 状态管理 ================= */
 const CACHE_PREFIX="journalPlanner.v3.";
-let _gid=1;
-let state;
 let supabaseClient=null;
 let supabaseConfig=null;
 let currentUser=null;
@@ -99,12 +67,6 @@ let activationId=0;
 let dirty=false;        // 本地有未推送到云端的改动
 let pullBusy=false;
 let accessToken=null;   // 供 beforeunload 的 keepalive 请求同步取用
-function newGoalId(){return "g"+(_gid++);}
-function defaultState(){
-  return {tasks:[],goals:{weekly:[],monthly:[],yearly:[],reviews:[]},view:"day",theme:"e",
-    filters:{keyword:"",year:"",month:"",prio:"",status:"",type:"",slot:""},
-    selDate:fmt(TODAY),kanbanMode:"status",kanbanDragHintSeen:false,onlyOverdue:false,onlyLate:false};
-}
 function readState(key){
   try{const raw=localStorage.getItem(key);if(raw){const s=JSON.parse(raw);if(s&&Array.isArray(s.tasks))return s;}}catch(e){}
   return null;
@@ -169,41 +131,6 @@ function flushRemoteSync(){
     dirty=false;
   }catch(e){}
 }
-function normalize(s){
-  const g=s.goals||{};
-  const up=arr=>(Array.isArray(arr)?arr:[]).map(x=>typeof x==="string"?{id:newGoalId(),title:x}:(x&&x.id?x:{id:newGoalId(),title:String(x??"")}));
-  s.goals={weekly:up(g.weekly),monthly:up(g.monthly),yearly:up(g.yearly),reviews:Array.isArray(g.reviews)?g.reviews:[]};
-  s.tasks.forEach(t=>{
-    if(typeof t.goalId!=="string")t.goalId="";
-    if(typeof t.doneAt!=="string")t.doneAt="";
-    if(t.course)t.doneAt="";
-    if(!RECUR_RULES[t.recur&&t.recur.freq])t.recur=null;
-    else{
-      if(!Array.isArray(t.recur.days))t.recur.days=[];
-      t.recur.days=[...new Set(t.recur.days.map(Number).filter(d=>d>=0&&d<=6))].sort((a,b)=>a-b);
-      t.recur.mday=Math.min(31,Math.max(1,+t.recur.mday||1));
-      if(t.recur.freq==="weekly"&&!t.recur.days.length)t.recur.days=[parseD(t.start).getDay()];
-    }
-    if(typeof t.doneOn!=="object"||!t.doneOn)t.doneOn={};
-    if(t.fixed){
-      if(!t.course){
-        t.recur={freq:"daily",days:[],mday:1};
-        if(t.status==="done"){const d=t.doneAt||t.end;t.doneOn={[d]:d};}
-      }
-      delete t.fixed;
-    }
-    if(!t.recur)t.doneOn={};
-  });
-  return s;
-}
-function setState(value){
-  const base=defaultState();
-  const source=value&&Array.isArray(value.tasks)?value:{};
-  state=normalize({...base,...source,filters:{...base.filters,...(source.filters||{})},goals:source.goals||base.goals});
-  _id=maxSuffix(state.tasks,"id")+1;
-  _gid=maxSuffix(state.goals.weekly.concat(state.goals.monthly,state.goals.yearly),"id")+1;
-}
-function maxSuffix(list,key){return list.reduce((m,x)=>Math.max(m,parseInt(String(x[key]??"").replace(/\D/g,""),10)||0),0);}
 try{localStorage.removeItem("journalPlanner.v1");}catch(e){}
 setState(defaultState());
 
@@ -357,70 +284,6 @@ async function bootstrapPlanner(client,config){
     else if(!session){currentUser=null;accessToken=null;dirty=false;showAuthScreen();}
   });
 }
-function taskById(id){return state.tasks.find(t=>t.id===id);}
-function slotOf(t){
-  if(t.course&&t.timeSlot){const h=parseInt(t.timeSlot.split(":")[0],10);if(h<12)return"morning";if(h<18)return"afternoon";return"evening";}
-  return"";
-}
-function titleMatchesKeyword(title,keyword){
-  const text=String(title||"").toLowerCase();
-  if(text.includes(keyword))return true;
-  if(!/^[a-z0-9]+$/.test(keyword))return false;
-  const initials=pinyin(text,{pattern:"first",toneType:"none",separator:""}).replace(/\s+/g,"");
-  return initials.includes(keyword);
-}
-function filteredTasks(){
-  const f=state.filters;
-  const keyword=f.keyword.trim().toLowerCase();
-  return state.tasks.filter(t=>{
-    if(keyword&&!titleMatchesKeyword(t.title,keyword))return false;
-    if(state.onlyOverdue&&!isOverdue(t))return false;
-    if(state.onlyLate&&!isLateDone(t))return false;
-    if(f.type&&t.type!==f.type)return false;
-    if(f.prio&&String(t.priority)!==f.prio)return false;
-    if(f.status&&t.status!==f.status)return false;
-    if(f.year){const y=(t.start||"").slice(0,4);if(y!==f.year)return false;}
-    if(f.month){const m=(t.start||"").slice(5,7);if(m!==f.month)return false;}
-    if(f.slot){if(slotOf(t)!==f.slot)return false;}
-    return true;
-  });
-}
-function tasksOn(dateStr,pool){
-  return (pool||state.tasks).filter(t=>{
-    if(t.recur)return occursOn(t,dateStr);
-    if(t.course&&t.dow!==null&&t.dow!==undefined){
-      return parseD(dateStr).getDay()===t.dow && t.start<=dateStr;
-    }
-    return t.start<=dateStr&&t.end>=dateStr;
-  });
-}
-/* ---------- 循环任务：库里只存一条定义，渲染时按规则现展开成当天实例。
-   实例不是数据，id 用「定义id@日期」拼出来，打卡记录写回定义的 doneOn。
-   start/end 复用为循环起止窗口（含首尾） ---------- */
-/* 法规意义上的工作日：调休补班的周末算工作日；法定节假日不算；其余按周一至周五。
-   年份未收录 CN_HOLIDAY 时，退回普通周一至周五判定。 */
-function isLegalWorkday(ds){
-  const w=parseD(ds).getDay(),h=CN_HOLIDAY[ds.slice(0,4)];
-  if(!h)return w>=1&&w<=5;
-  if(h.makeup.has(ds))return true;
-  if(h.off.has(ds))return false;
-  return w>=1&&w<=5;
-}
-/* 把 holiday-cn 年度 JSON（days:[{date,isOffDay,name}]）灌入判定表；isOffDay=true 为放假，false 为补班。
-   只接受日期前缀与年份一致的条目，脏数据直接丢弃；无任何有效条目时保留内置数据不覆盖。 */
-function applyHolidayYear(y,data){
-  const off=[],makeup=[],names=[];
-  (data&&Array.isArray(data.days)?data.days:[]).forEach(d=>{
-    if(d&&typeof d.date==="string"&&d.date.slice(0,4)===String(y)){
-      const mm=d.date.slice(5);
-      if(d.isOffDay===true){off.push(mm);if(typeof d.name==="string"&&d.name)names.push([mm,mm,d.name]);}
-      else if(d.isOffDay===false)makeup.push(mm);
-    }
-  });
-  if(!off.length&&!makeup.length)return false;
-  CN_HOLIDAY[y]=buildHolidayYear(y,off,makeup,names);HOLIDAY_SRC[y]="live";
-  return true;
-}
 /* 日历日格排版：数字左上悬浮字标 休(红)/班(蓝)/末(玫瑰灰)，数字下方信息行（见 dayInfoBadge）。
    末=普通周末，不依赖节假日数据；休/班需该年有数据，无数据年份不假装有数据。 */
 function dayMarkBadge(ds){
@@ -440,15 +303,6 @@ function dayTint(ds){
 }
 /* 信息行优先级：法定假期名（红，仅假期首日）> 节气（绿）> 节日/纪念日（红）> 农历初一显月名（绿）> 农历日（灰）。
    农历/节气/农历传统节日来自 lunar-javascript 库；公历节日用下方精选表——刻意不用库的公历节日表（含 全民国防教育日 等窄口径节日，与参考万年历不一致）。 */
-const SOLAR_FESTIVALS={"01-01":"元旦","03-08":"妇女节","03-12":"植树节","05-01":"劳动节","05-04":"青年节","06-01":"儿童节","07-01":"建党节","08-01":"建军节","09-10":"教师节","09-18":"国耻日","10-01":"国庆节","12-13":"国家公祭日"};
-const _lunarCache=new Map();
-function lunarOf(ds){
-  let v=_lunarCache.get(ds);
-  if(!v){const s=Solar.fromYmd(+ds.slice(0,4),+ds.slice(5,7),+ds.slice(8,10)),l=s.getLunar();
-    v={day:l.getDay(),monthName:l.getMonthInChinese(),jieqi:l.getJieQi(),dayCh:l.getDayInChinese(),fest:l.getFestivals()};
-    _lunarCache.set(ds,v);}
-  return v;
-}
 function dayInfoBadge(ds){
   const h=CN_HOLIDAY[ds.slice(0,4)];
   if(h&&h.off.has(ds)){const n=h.names[ds],p=fmt(addDays(parseD(ds),-1));if(n&&!(h.off.has(p)&&h.names[p]===n))return `<i class="dname n-hol">${esc(n)}</i>`;} // 仅假期首日显名
@@ -459,94 +313,18 @@ function dayInfoBadge(ds){
   if(l.day===1)return `<i class="dname n-term">${esc(l.monthName)}月</i>`;
   return `<i class="dname">${esc(l.dayCh)}</i>`;
 }
-const HOLIDAY_MIRROR="https://cdn.jsdelivr.net/gh/NateScarlet/holiday-cn@master/";
-async function refreshHolidayYear(y){
-  try{
-    const res=await fetch(HOLIDAY_MIRROR+y+".json",{cache:"no-store"});
-    if(!res.ok)return false;
-    const data=await res.json();
-    if(!data||String(data.year)!==String(y))return false; // 校验年份，防止镜像返回错位数据
-    return applyHolidayYear(y,data);
-  }catch(e){return false;} // 拉取失败：静默保留内置数据
-}
 async function initHolidays(){
   if(typeof fetch!=="function")return; // 测试桩环境无 fetch，跳过
   const y=+fmt(TODAY).slice(0,4);
   const rs=await Promise.all([refreshHolidayYear(y),refreshHolidayYear(y+1)]);
   if(rs.some(Boolean)&&typeof renderAll==="function")renderAll(); // 同步成功时刷新界面，让来源标注即时生效
 }
-function occursOn(t,ds){
-  const r=t.recur;if(!r)return false;
-  if(ds<t.start||ds>t.end)return false;
-  const d=parseD(ds);
-  if(r.freq==="weekly")return r.days.indexOf(d.getDay())>=0;
-  if(r.freq==="monthly")return d.getDate()===Math.min(r.mday,new Date(d.getFullYear(),d.getMonth()+1,0).getDate());
-  if(r.freq==="workday")return isLegalWorkday(ds); // 法定工作日（扣除节假日·含调休补班）
-  return true; // daily
-}
-function recurText(t){
-  const r=t.recur;if(!r)return"";
-  if(r.freq==="weekly")return "每"+(r.days.length?r.days.map(d=>DOW_NAMES[d].slice(1)).join("、"):"—");
-  if(r.freq==="monthly")return "每月 "+r.mday+" 号";
-  if(r.freq==="workday")return "法定工作日";
-  return "每天";
-}
-function nextOccurrence(t,fromStr){
-  let d=parseD(fromStr<t.start?t.start:fromStr);
-  for(let i=0;i<400;i++){
-    const ds=fmt(d);
-    if(ds>t.end)return"";
-    if(occursOn(t,ds))return ds;
-    d=addDays(d,1);
-  }
-  return"";
-}
-function prevOccurrence(t,beforeStr){ // 严格早于 beforeStr 的最近一次发生
-  let d=addDays(parseD(beforeStr),-1);
-  for(let i=0;i<400;i++){
-    const ds=fmt(d);
-    if(ds<t.start)return"";
-    if(occursOn(t,ds))return ds;
-    d=addDays(d,-1);
-  }
-  return"";
-}
-function occurrencesBetween(t,fromStr,toStr){
-  const out=[];
-  for(let ds=nextOccurrence(t,fromStr);ds&&ds<=toStr;ds=nextOccurrence(t,fmt(addDays(parseD(ds),1))))out.push(ds);
-  return out;
-}
-function occDone(t,ds){return !!(t&&t.recur&&t.doneOn&&t.doneOn[ds]);}
-function toggleOcc(t,ds){if(occDone(t,ds))delete t.doneOn[ds];else t.doneOn[ds]=fmt(TODAY);}
-function recurDoneIn(t,from,to){const l=occurrencesBetween(t,from,to);return {done:l.filter(ds=>occDone(t,ds)).length,total:l.length};}
-function recurStreak(t){ // 连续打卡次数：从今天（今天已打卡）或上一个发生日起，往前数连续有记录的次数
-  if(!t.recur)return 0;
-  const today=fmt(TODAY);
-  let ds=occDone(t,today)?today:prevOccurrence(t,today);
-  let n=0;
-  while(ds&&ds>=t.start&&occDone(t,ds)){n++;ds=prevOccurrence(t,ds);}
-  return n;
-}
-function monthRange(ds){const d=parseD(ds),ms=`${d.getFullYear()}-${pad(d.getMonth()+1)}`;return [ms+"-01",ms+"-"+pad(new Date(d.getFullYear(),d.getMonth()+1,0).getDate())];}
-function splitId(id){ // 实例 id → 定义 + 日期；定义 id 原样返回
-  const s=String(id),i=s.lastIndexOf("@");
-  return i<0?{task:taskById(s),date:""}:{task:taskById(s.slice(0,i)),date:s.slice(i+1)};
-}
-/* 统计口径：循环任务不进完成率、逾期、迟完与看板，只在日/周/月历按实例呈现 */
-function statsPool(list){return list.filter(t=>!t.recur);}
 /* ---------- 逾期判定：截止日期已过且未标记完成（课程与循环任务按周期计，不参与） ---------- */
-function isOverdue(t){return !t.course&&!t.recur&&t.status!=="done"&&!!t.end&&t.end<fmt(TODAY);}
-function overdueDays(t){return Math.round((TODAY-parseD(t.end))/86400000);}
-function overdueList(pool){return (pool||state.tasks).filter(isOverdue);}
 function overdueBadge(t,compact){
   const d=overdueDays(t);
   return `<span class="badge-overdue" title="截止 ${esc(t.end)} 未完成，已逾期 ${d} 天">${I.flag}${compact?"逾期"+d+"天":"逾期 "+d+" 天"}</span>`;
 }
 /* ---------- 迟完留痕：完成时刻晚于截止日期。doneAt 只由 syncDoneAt 写，课程与循环任务被清空故不参与 ---------- */
-function syncDoneAt(t){t.doneAt=(t.status==="done"&&!t.course&&!t.recur)?(t.doneAt||fmt(TODAY)):"";}
-function isLateDone(t){return !t.recur&&t.status==="done"&&!!t.doneAt&&t.doneAt>t.end;}
-function lateDays(t){return Math.round((parseD(t.doneAt)-parseD(t.end))/86400000);}
-function lateList(pool){return (pool||state.tasks).filter(isLateDone);}
 function lateBadge(t){
   const d=lateDays(t);
   return `<span class="badge-late" title="截止 ${esc(t.end)} · 实际 ${esc(t.doneAt)} 完成 · 迟 ${d} 天">${I.flag}迟 ${d} 天完成</span>`;
@@ -563,13 +341,6 @@ function recurStatHTML(t,ds){
     +` · 已打卡 ${p.done} 次 · 连续 ${st} 次 = 从今天或上一个发生日往前数，连续留有打卡记录的次数`;
   return `<div class="recur-stat" title="${esc(tip)}">本月 <b>${p.done}/${p.total}</b> 次${st?` · <span class="streak">连续 ${st} 次</span>`:""}</div>`;
 }
-function statsOf(list){
-  const s={total:list.length,done:0,doing:0,todo:0,q:{1:0,2:0,3:0,4:0},types:{}};
-  list.forEach(t=>{s[t.status]++;s.q[t.priority]++;s.types[t.type]=(s.types[t.type]||0)+1;});
-  s.rate=s.total?Math.round(s.done/s.total*100):0;
-  return s;
-}
-function fmtDur(min){return min>=60?Math.round(min/6)/10+"h":min+"′";}
 function quadrantOf(p){return p;}
 
 /* ================= 顶部：主题 / 导航 / 筛选 ================= */
@@ -661,19 +432,6 @@ $("#banner").addEventListener("click",e=>{
 
 /* ================= 目标：聚合与渲染 ================= */
 const expandedGoals=new Set();
-function goalsOf(level){return state.goals[level]||[];}
-function goalLevel(id){const e=GOAL_LEVELS.find(([k])=>goalsOf(k).some(g=>g.id===id));return e?e[0]:"";}
-function goalById(id){const k=goalLevel(id);return k?goalsOf(k).find(g=>g.id===id):null;}
-function goalTasks(id){return state.tasks.filter(t=>t.goalId===id);}
-function goalTasksOn(id,dates){return goalTasks(id).filter(t=>dates.some(ds=>tasksOn(ds,[t]).length));}
-function goalVisibleThisWeek(g,dates){return !goalTasks(g.id).length||goalTasksOn(g.id,dates).length||goalTasks(g.id).some(t=>!t.recur&&t.status!=="done");}
-function taskGoal(t){return t&&t.goalId?goalById(t.goalId):null;}
-function goalProgress(id,list){
-  list=list||goalTasks(id);const plain=statsPool(list); // 循环任务不进进度：它没有单一进度值可平均
-  return {total:list.length,plain:plain.length,done:plain.filter(t=>t.status==="done").length,
-    pct:plain.length?Math.round(plain.reduce((a,t)=>a+(+t.progress||0),0)/plain.length):0,
-    recur:list.length-plain.length};
-}
 function goalItemHTML(g,level){
   const p=goalProgress(g.id),open=expandedGoals.has(g.id);
   const note=p.total?(p.recur&&!p.plain?`关联 ${p.total} 条循环任务 · 不参与进度`
@@ -931,7 +689,6 @@ function renderSchedule(){
   });
   v.querySelector("[data-newcourse]").addEventListener("click",()=>openModal(null,true));
 }
-function hasActiveFilter(){const f=state.filters;return f.keyword.trim()||f.year||f.month||f.prio||f.status||f.type||f.slot||state.onlyOverdue||state.onlyLate;}
 
 /* ================= 日视图 ================= */
 let calNav=null; // 迷你日历临时浏览的月份 {y,m,anchor:当时的selDate}，selDate 变化后自动失效回归跟随

@@ -1,10 +1,27 @@
-// 在桩化 DOM 里执行模块化后的规划器脚本，取出真正的引擎函数做断言
-const fs=require("fs"),path=require("path"),vm=require("vm");
+// 桌面壳 planner.js 在桩化 DOM 里执行；它 import 的 core 模块用**真实实现**挂进 vm 全局，
+// 于是断言覆盖的是 core 的真代码，而不是壳里残留的平行副本。
+import fs from "node:fs";
+import path from "node:path";
+import vm from "node:vm";
+import { pinyin } from "pinyin-pro";
+import * as coreDates from "./src/core/dates.js";
+import * as coreClock from "./src/core/clock.js";
+import * as coreConstants from "./src/core/constants.js";
+import * as coreHolidays from "./src/core/holidays.js";
+import * as coreFilters from "./src/core/filters.js";
+import * as coreRecur from "./src/core/recur.js";
+import * as coreSchema from "./src/core/schema.js";
+import * as coreSelectors from "./src/core/selectors.js";
+import * as coreGoals from "./src/core/goals.js";
+
 const plannerPath=process.argv[2];
 const html=fs.readFileSync(process.argv[3]||path.resolve(path.dirname(plannerPath),"..","index.html"),"utf8");
 const src=fs.readFileSync(plannerPath,"utf8");
-const executableSrc=src.replace('import { pinyin } from "pinyin-pro";','const { pinyin } = require("pinyin-pro");')
-  .replace('import { Solar } from "lunar-javascript";','const { Solar } = require("lunar-javascript");');
+// 剥掉 import 行：这些符号下面直接挂到 vm 全局，vm 里的自由标识符就能解析到 core 实现
+const executableSrc=src.split("\n").filter(l=>!/^\s*import[\s\S]*?from\s+"[^"]+";\s*$/.test(l)).join("\n");
+
+// core 的时钟锚到夹具那天：core 是在 Node 里真实加载的，拿不到 vm 的假 Date
+coreClock.setToday("2026-09-18");
 
 function makeEl(){
   const el={
@@ -36,13 +53,20 @@ class TestDate extends Date{
   static now(){return new Date(2026,8,18,12).getTime();}
 }
 const ctx=vm.createContext({
-  console,require,Date:TestDate,setTimeout,clearTimeout,setInterval:()=>0,clearInterval(){},
+  console,Date:TestDate,setTimeout,clearTimeout,setInterval:()=>0,clearInterval(){},
   localStorage:{getItem:k=>(k in store?store[k]:null),setItem:(k,v)=>{store[k]=String(v)},removeItem:k=>{delete store[k]}},
   document:{body:getEl("body"),querySelector:getEl,querySelectorAll:()=>[],addEventListener(){},createElement:()=>makeEl(),hidden:false},
   window:{addEventListener(){},devicePixelRatio:1},
   getComputedStyle:()=>({getPropertyValue:()=>"#000"}),
   alert:m=>{ctx.__alert=m},confirm:()=>true,
+  // core 导出挂进 vm（含 planner 里用的别名 TODAY）
+  ...coreDates,...coreConstants,...coreHolidays,...coreFilters,...coreRecur,...coreSelectors,...coreGoals,
+  ...coreSchema, TODAY:coreClock.today, pinyin,
 });
+/* state 是 core 里的可变单例，ESM live binding 不会同步进 vm 全局，所以包一层：
+   每次 setState 后把引用重新刷进 ctx，壳与 core 才看到同一个对象 */
+const coreSetState=coreSchema.setState;
+ctx.setState=(v)=>{coreSetState(v);ctx.state=coreSchema.state;};
 ctx.globalThis=ctx;
 try{vm.runInContext(executableSrc,ctx,{filename:"planner.js"})}catch(e){console.log("[setup] 顶层抛错（渲染桩不全不影响取函数）:",e.message)}
 vm.runInContext(`setState(${JSON.stringify(initialState)})`,ctx);
@@ -170,6 +194,13 @@ eq("tasksOn 按日展开（循环 t7 + 单次 t8）",F("tasksOn")("2026-09-18").
 eq("tasksOn 窗口外只剩单次",F("tasksOn")("2026-10-05").map(t=>t.id),[]);
 eq("循环任务不进 statsPool",F("statsPool")(F("tasksOn")("2026-09-18")).map(t=>t.id),["t8"]);
 eq("循环任务窗口已过也不算逾期",F("isOverdue")(Object.assign({},F("taskById")("t7"),{end:"2026-09-01",status:"todo"})),false);
+/* 逾期边界：时钟锚在 2026-09-18，"今日到期"不能算逾期（补此断言前，把 < 改成 <= 测试仍全绿） */
+const ov=o=>F("isOverdue")(Object.assign({},F("taskById")("t8"),o));
+eq("昨天截止未完成 = 逾期",ov({end:"2026-09-17",status:"todo"}),true);
+eq("今天截止未完成 ≠ 逾期（边界）",ov({end:"2026-09-18",status:"todo"}),false);
+eq("明天截止 ≠ 逾期",ov({end:"2026-09-19",status:"todo"}),false);
+eq("已过截止但已完成 ≠ 逾期",ov({end:"2026-09-10",status:"done"}),false);
+eq("课程不计逾期",ov({end:"2026-09-10",status:"todo",course:true}),false);
 eq("存量数据被补齐 doneOn",Object.keys(F("taskById")("t7").doneOn),["2026-09-17"]);
 eq("recurText 每天",F("recurText")(F("taskById")("t7")),"每天");
 eq("recurText 每周",F("recurText")({recur:{freq:"weekly",days:[1,3],mday:1}}),"每一、三");
