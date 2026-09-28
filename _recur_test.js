@@ -516,6 +516,12 @@ eq("首次装载标记来自云端",[F("decideInitialSource")({tasks:[]},null).f
 eq("云端与缓存都无 → state 为 null 交由壳回落默认",F("decideInitialSource")(null,null).state,null);
 eq("缓存回退时仍能拿到那份状态",F("decideInitialSource")(null,{tasks:[{id:"l"}]}).state.tasks[0].id,"l");
 
+console.log("\n== 认证错误文案（core/auth） ==");
+eq("优先按 code 命中",F("authErrorMessage")({code:"invalid_credentials",message:"whatever"}),"邮箱或密码不正确。");
+eq("无 code 时按 message 兜底",F("authErrorMessage")({message:"Invalid login credentials"}),"邮箱或密码不正确。");
+eq("未识别的错误原样返回",F("authErrorMessage")({message:"Something odd"}),"Something odd");
+eq("空错误返回空串",F("authErrorMessage")(null),"");
+
 console.log("\n== id 选择器对账（桩 DOM 不会因 id 不存在而抛错，只能靠静态比对）==");
 {
   const declared=new Set([...html.matchAll(/\bid="([\w-]+)"/g),...src.matchAll(/\bid="([\w-]+)"/g)].map(m=>m[1]));

@@ -9,6 +9,7 @@ import { state, setState, defaultState, mk, taskById } from "./core/schema.js";
 import { filteredTasks, tasksOn, splitId, isOverdue, overdueDays, overdueList, syncDoneAt, isLateDone, lateDays, lateList, statsOf, hasActiveFilter,
   SLOT_TIMES, scheduleGrid, dayGroups, weekDaysOf, miniCalGrid, weekColumns, dailyCounts, monthTasksOf, monthGrid, progressWeeks, monthSpanFilter, ganttCells, yearSplit, yearMonthDays, monthSlice, monthlyRates, kanbanSplit } from "./core/selectors.js";
 import { goalsOf, goalLevel, goalById, goalTasks, goalVisibleThisWeek, taskGoal, goalProgress } from "./core/goals.js";
+import { authErrorMessage } from "./core/auth.js";
 import { toggleTaskDone, duplicateTask, deleteTask as deleteTaskData, bulkToggleDone, bulkDelete, saveTask, saveGoal, deleteGoal as deleteGoalData, moveGoal, applyDrop, applyKanbanDrop } from "./core/mutations.js";
 import { remoteUpdatedAt, localUpdatedAt, ensureUpdatedAt, decidePush, decidePull, buildPushPayload, decideInitialSource } from "./core/sync.js";
 
@@ -145,33 +146,6 @@ let authMode="login";
 let authEventsBound=false;
 let dateWatcherStarted=false;
 function setAuthMessage(message){const el=$("#authMessage");if(el)el.textContent=message||"";}
-const AUTH_ERR_ZH={
-  invalid_credentials:"邮箱或密码不正确。",
-  email_not_confirmed:"邮箱尚未确认，请先查收确认邮件。",
-  invalid_email:"邮箱地址格式不正确。",
-  user_already_exists:"该邮箱已注册，请直接登录。",
-  weak_password:"密码强度不足，请至少使用 6 位以上字符。",
-  over_email_send_rate_limit:"发信过于频繁，请约 1 小时后再试。",
-  over_request_rate_limit:"操作过于频繁，请稍后再试。",
-  otp_expired:"验证码已过期，请重新获取。",
-  invalid_otp:"验证码不正确，请检查后重试。",
-  signup_disabled:"当前未开放注册。",
-};
-function authErrorMessage(err){
-  if(!err)return"";
-  if(AUTH_ERR_ZH[err.code])return AUTH_ERR_ZH[err.code];
-  const m=String(err.message||"");
-  if(/invalid login credentials/i.test(m))return"邮箱或密码不正确。";
-  if(/email not confirmed/i.test(m))return"邮箱尚未确认，请先查收确认邮件。";
-  if(/invalid email|email address is invalid/i.test(m))return"邮箱地址格式不正确。";
-  if(/already registered|already been registered/i.test(m))return"该邮箱已注册，请直接登录。";
-  if(/weak password|password should|at least 6/i.test(m))return"密码强度不足，请至少使用 6 位以上字符。";
-  if(/rate limit|too many|otp expired/i.test(m))return"操作过于频繁，请稍后再试（约 1 小时自动恢复）。";
-  if(/invalid otp|token has expired|expired token/i.test(m))return"验证码已过期或无效，请重新获取。";
-  if(/signups not allowed/i.test(m))return"当前未开放注册。";
-  if(/failed to fetch|network|fetch failed|timeout/i.test(m))return"网络连接失败，请检查网络后重试。";
-  return m;
-}
 function setAuthMode(mode){
   authMode=mode;
   const isLogin=mode==="login";
