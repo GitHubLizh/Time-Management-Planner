@@ -10,7 +10,9 @@
   var pref="";try{pref=localStorage.getItem("planner.ui")||""}catch(e){}
   var phone=matchMedia("(max-width:760px) and (pointer:coarse)").matches;
   if(pref==="desktop")return;
-  if(pref==="mobile"||phone)location.replace("/mobile.html"+(location.hash||""));
+  /* 必须同时带上 query 和 hash：Supabase 邮箱链接/OAuth 回调把授权码放在 query string，
+     只保 hash 会让手机上的这两类登录静默失败 */
+  if(pref==="mobile"||phone)location.replace("/mobile.html"+location.search+location.hash);
 })();
 </script>
 <title>手帐风 · 日程管理</title>

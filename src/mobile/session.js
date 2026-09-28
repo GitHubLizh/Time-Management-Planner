@@ -89,11 +89,14 @@ export function createSession(client, config) {
     } catch (e) { }
   }
 
+  /* 回调直接落回移动页本身，而不是靠桌面的分流 shim 再转发一次：
+     少一跳就少一类丢参数的问题（邮箱链接与 OAuth 的授权码都在 query string 里）。 */
+  const selfUrl = location.origin + location.pathname;
   const auth = {
     signIn: (email, password) => client.auth.signInWithPassword({ email, password }),
     signUp: (email, password) => client.auth.signUp({ email, password }),
-    otp: (email) => client.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin } }),
-    oauth: (provider) => client.auth.signInWithOAuth({ provider, options: { redirectTo: location.origin } }),
+    otp: (email) => client.auth.signInWithOtp({ email, options: { emailRedirectTo: selfUrl } }),
+    oauth: (provider) => client.auth.signInWithOAuth({ provider, options: { redirectTo: selfUrl } }),
     signOut: () => client.auth.signOut(),
     onChange: cb => client.auth.onAuthStateChange((_e, s) => cb(s)),
   };
