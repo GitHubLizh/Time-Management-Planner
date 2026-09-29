@@ -86,8 +86,10 @@ function/index.ts 同域反向代理（Edge 函数）
 
 | 条目 | 面板项 | 落到 |
 | --- | --- | --- |
-| 今日任务 | 编辑 / 上移 / 下移 / 取消关联 / 删除 | `moveTask`、`applyDrop({type:"unlink"})`、`deleteTask` |
+| 今日任务 | 编辑 / 复制（循环任务不给）/ 上移 / 下移 / 取消关联 / 删除 | `moveTask`、`duplicateTask`、`applyDrop({type:"unlink"})`、`deleteTask` |
 | 目标 | 编辑 / 上移 / 下移 / 删除，每档底部另有"新增×目标" | `moveGoal`、`saveGoal`、`deleteGoal` |
+
+- **复制比桌面多走一步**：`duplicateTask` 出副本后立即把编辑面板开在副本上（手机上重填字段成本太高），原任务不受影响；这一条路径同时覆盖桌面弹窗里"另存为副本"的用法。
 
 - **可排序范围照抄桌面**：只有"今日任务"卡内的单次任务能上下移（桌面 `[data-reorder]` 就是 `#dayNormal`），循环与课程条目面板里根本不出现这两项。相邻判定取 `dayGroups().normal`，即屏幕上看到的上下邻条。
 - **顺序就是 `state.tasks` 数组顺序**，不另设排序字段。
@@ -169,17 +171,17 @@ npm run dev
 ## 测试
 
 ```bash
-npm test          # 251 条断言：node _recur_test.js src/planner.js
+npm test          # 259 条断言：node _recur_test.js src/planner.js
 npm run golden    # 渲染金样本：16 段 innerHTML 落盘 _golden.json（已 gitignore）
 ```
 
-**`_recur_test.js`** 用 `vm` 在桩化 DOM 中执行桌面壳，但断言打到的是 **core 的真实实现**：`_core_seed.mjs` 从壳的 import 语句反推需要哪些符号（含别名，如 `deleteTask as deleteTaskData`），并用访问器挂进 vm 全局 —— 必须用访问器而不是取值，否则 ESM 的 live binding 会被冻结成快照，`state` 被 `setState` 重新赋值后壳读不到。覆盖范围：重复展开引擎、节假日口径、日历字标与底色、拼音检索、逾期/迟完边界、写操作与撤销、同步与装载决策、认证文案分支、`index.html` 与 JS 之间的选择器 id 对账。
+**`_recur_test.js`** 用 `vm` 在桩化 DOM 中执行桌面壳，但断言打到的是 **core 的真实实现**：`_core_seed.mjs` 从壳的 import 语句反推需要哪些符号（含别名，如 `deleteTask as deleteTaskData`），并用访问器挂进 vm 全局 —— 必须用访问器而不是取值，否则 ESM 的 live binding 会被冻结成快照，`state` 被 `setState` 重新赋值后壳读不到。覆盖范围：重复展开引擎、节假日口径、日历字标与底色、拼音检索、逾期/迟完边界、写操作与撤销、同步与装载决策、认证文案分支、`index.html` 与 JS 之间的选择器 id 对账；壳里的纯函数也直接 `import` 进来断言（如移动壳 `editor.js` 的 `goalOptions` / `goalOptionValue`，它不碰 DOM，所以能脱离浏览器测）。
 
 **`npm run golden`** 是重构期间的等价门：固定夹具（含循环 / 课程 / 逾期 / 迟完 / 跨周跨月 / 带成员目标）渲染 7 视图 × 2 看板模式 + 导航 + banner，共 16 段 `innerHTML` 落盘，改动前后逐字节比对。它的价值已被验证过一次：把 `yearSplit` 返回的 `recurCount` 在壳里按 `recurCnt` 解构（漏了重命名）导致年视图少渲染 107 字符，`npm test` 全绿也没发现，金样本一眼可见。
 
 **断言有效性用变异测试抽查过**，不是只看"跑绿了"：删掉 `occursOn` 的月末钳位 → 3 条变红；把 `isOverdue` 的 `end<today` 改成 `<=` → 当时全绿，说明缺边界断言，补了 5 条后该变异体被杀死。改坏 `deleteTask` 撤销的插回索引 → 立刻变红。
 
-`_mobile_frame.html` / `_mobile_probe.html` 是免登录渲染移动壳的 dev 探针：用桩会话驱动真实 `click` 事件，量字号、触控目标高度、横向溢出、一屏条目数。它只测可计算的量，**不代表真机观感**，也不验证登录链路。
+`_mobile_frame.html` / `_mobile_probe.html` 是免登录渲染移动壳的 dev 探针（桩会话，不验证登录链路）。它能量的两件事是**几何**（字号、触控目标高度、横向溢出、一屏条目数——`getBoundingClientRect` 在隐藏页也照常工作）和**处理链**（`element.click()` 派发的是走完整监听器链的真实 click 事件）。它测不到的是**指针输入**：命中测试、遮挡、滚动位置、动画手感都不在其中，所以"探针里点通了"不等于真机点得中——那一步只能上真机，或等有可用 surface 的浏览器。
 
 `_bulk_test.js` 是批量选择与撤销的同类断言脚本，尚未挂进 npm scripts。
 

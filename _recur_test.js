@@ -6,6 +6,7 @@ import vm from "node:vm";
 import { pinyin } from "pinyin-pro";
 import * as coreClock from "./src/core/clock.js";
 import { seedFromCoreImports } from "./_core_seed.mjs";
+import { goalOptions, goalOptionValue } from "./src/mobile/editor.js"; // 移动壳里的纯函数，不需要 DOM
 
 const plannerPath=process.argv[2];
 const html=fs.readFileSync(process.argv[3]||path.resolve(path.dirname(plannerPath),"..","index.html"),"utf8");
@@ -532,6 +533,19 @@ eq("令牌过期",F("authErrorMessage")({message:"token has expired"}),"验证�
 eq("未开放注册",F("authErrorMessage")({message:"Signups not allowed for this project"}),"当前未开放注册。");
 eq("网络失败（Failed to fetch）",F("authErrorMessage")({message:"Failed to fetch"}),"网络连接失败，请检查网络后重试。");
 eq("网络失败（timeout）",F("authErrorMessage")({message:"request timeout"}),"网络连接失败，请检查网络后重试。");
+
+console.log("\n== 移动壳：关联目标下拉（曾被 concat 的一层展开语义打碎）==");
+{
+  const goals = { weekly: [{ id: "g1", title: "周目标一" }], monthly: [{ id: "g2", title: "月目标一" }], yearly: [{ id: "g3", title: "年度主线" }], reviews: [] };
+  eq("选项 = 不关联 + 三档各一条", goalOptions(goals).map(([v]) => v), ["", "weekly:g1", "monthly:g2", "yearly:g3"]);
+  eq("标签带档位前缀", goalOptions(goals).map(([, l]) => l), ["不关联目标", "周 · 周目标一", "月 · 月目标一", "年 · 年度主线"]);
+  eq("选中值可反解出 goalId", goalOptions(goals).map(([v]) => v.split(":")[1] || ""), ["", "g1", "g2", "g3"]);
+  eq("回显：月档目标", goalOptionValue(goals, "g2"), "monthly:g2");
+  eq("回显：未关联", goalOptionValue(goals, ""), "");
+  eq("回显：悬空 goalId 归到不关联", goalOptionValue(goals, "gone"), "");
+  eq("无目标时只剩不关联", goalOptions({ weekly: [], monthly: [], yearly: [] }).length, 1);
+  eq("档位缺失也不抛", goalOptions({}).map(([v]) => v), [""]);
+}
 
 console.log("\n== id 选择器对账（桩 DOM 不会因 id 不存在而抛错，只能靠静态比对）==");
 {

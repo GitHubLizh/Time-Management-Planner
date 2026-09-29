@@ -7,11 +7,25 @@ import { TYPES, PRIO_NAMES, STATUS_NAMES, DOW_NAMES, GOAL_LEVELS } from "../core
 import { fmt, parseD } from "../core/dates.js";
 import { today as TODAY } from "../core/clock.js";
 import { taskById } from "../core/schema.js";
-import { goalsOf, goalById, goalLevel } from "../core/goals.js";
-import { applyTaskDraftRules, saveTask, deleteTask, saveGoal, deleteGoal } from "../core/mutations.js";
+import { goalById, goalLevel } from "../core/goals.js";
+import { applyTaskDraftRules, saveTask, deleteTask, duplicateTask, saveGoal, deleteGoal } from "../core/mutations.js";
 
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 const FREQS = [["", "不重复"], ["daily", "每天"], ["workday", "每个法定工作日"], ["weekly", "每周固定几天"], ["monthly", "每月固定一天"]];
+
+/* 关联目标下拉的选项表：值带档位前缀（"weekly:g1"），选中后能反解出 goalId。
+   刻意写成纯函数并导出，是为了让 _recur_test.js 能直接 import 断言：
+   这里原先用 `[x].concat(...goalsOf(k).map(g=>[...]))`，而 concat 会展开一层实参，
+   于是每对 [值, 标签] 被摊成两个字符串，下拉里一个目标都列不出来；
+   更糟的是选中值恒为 ""，保存即静默解除关联。用数组字面量 + 展平，不给 concat 机会。 */
+export function goalOptions(goals) {
+  return [["", "不关联目标"], ...GOAL_LEVELS.flatMap(([k, label]) => (goals[k] || []).map(g => [k + ":" + g.id, label + " · " + g.title]))];
+}
+export function goalOptionValue(goals, gid) {
+  if (!gid) return "";
+  const e = GOAL_LEVELS.find(([k]) => (goals[k] || []).some(g => g.id === gid));
+  return e ? e[0] + ":" + gid : "";
+}
 
 export function openTaskEditor(app, key) {
   // key 可能是循环实例 id（定义id@日期），编辑的始终是定义本身
@@ -26,12 +40,8 @@ export function openTaskEditor(app, key) {
     course: false, room: "", teacher: "", dow: null, timeSlot: "",
   };
   const rec = d.recur || { freq: "", days: [], mday: 1 };
-  const goalOpts = [["", "不关联目标"]].concat(
-    ...goalsOf("weekly").map(g => ["w:" + g.id, "周 · " + g.title]),
-    ...goalsOf("monthly").map(g => ["m:" + g.id, "月 · " + g.title]),
-    ...goalsOf("yearly").map(g => ["y:" + g.id, "年 · " + g.title])
-  );
-  const gid = d.goalId, gval = gid ? ((st.goals.weekly || []).some(g => g.id === gid) ? "w:" : (st.goals.monthly || []).some(g => g.id === gid) ? "m:" : "y:") + gid : "";
+  const goalOpts = goalOptions(st.goals);
+  const gval = goalOptionValue(st.goals, d.goalId);
 
   const html = `
     <div class="m-field"><label for="fTitle">标题</label><input id="fTitle" type="text" value="${esc(d.title)}" placeholder="要做什么" autocomplete="off"></div>
@@ -108,8 +118,16 @@ export function openTaskEditor(app, key) {
   return close;
 }
 
-/* 目标编辑面板：改名 + 换档位 + 新增。档位与数组顺序的语义与桌面一致。 */
-export function openGoalEditor(app, gid, presetLevel) {
+/* 复制 = core 的 duplicateTask 出副本，再把编辑面板直接开在副本上。
+   桌面是"复制完列表里多一条"，手机上重填字段成本高，所以多走这一步；
+   它同时覆盖桌面弹窗里"另存为副本"的用法——原任务一个字节都不改。 */
+export function duplicateIntoEditor(app, t) {
+  const c = duplicateTask(t);
+  app.commit();
+  return openTaskEditor(app, c.id);
+}
+
+/* 目标编辑面板：改名 + 换档位 + 新增。档位与数组顺序的语义与桌面一致。 */export function openGoalEditor(app, gid, presetLevel) {
   const editing = gid ? goalById(gid) : null;
   if (gid && !editing) return;
   const level = gid ? goalLevel(gid) : (presetLevel || "weekly");

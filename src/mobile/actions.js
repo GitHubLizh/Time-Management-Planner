@@ -38,6 +38,7 @@ export function openTaskActions(app, key) {
   app.sheet(t.title, `
     <div class="m-acts">
       ${row("编辑内容", "edit", { hint: "字段、时间、重复、关联目标" })}
+      ${!t.recur ? row("复制为新任务", "dup", { hint: "内容照抄，状态/进度/实际耗时归零" }) : ""}
       ${sortable ? row("上移", "up", { off: !prev, hint: prev ? "移到「" + prev.title + "」前面" : "已在最前" }) : ""}
       ${sortable ? row("下移", "down", { off: !next, hint: next ? "移到「" + next.title + "」后面" : "已在最后" }) : ""}
       ${t.goalId ? row("取消关联目标", "unlink", { hint: goal ? "当前：" + goal.title : "" }) : ""}
@@ -47,6 +48,7 @@ export function openTaskActions(app, key) {
     (box, close) => {
       const go = act => {
         if (act === "edit") { close(); app.openTask(key); return; }
+        if (act === "dup") { close(); app.copyTask(t); return; } // 副本直接进编辑面板，原任务不动
         if (act === "del") { close(); app.deleteTask(t.id); return; }
         if (act === "up" && prev) moveTask(t.id, prev.id, false);
         else if (act === "down" && next) moveTask(t.id, next.id, true);

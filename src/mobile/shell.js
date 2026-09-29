@@ -4,7 +4,7 @@ import { state, setState } from "../core/schema.js";
 import { setPinyinImpl } from "../core/filters.js";
 import { pinyin } from "pinyin-pro";
 import { TODAY_TABS } from "./tabs.js";
-import { openTaskEditor, openGoalEditor, removeTaskWithUndo, removeGoalWithUndo } from "./editor.js";
+import { openTaskEditor, openGoalEditor, duplicateIntoEditor, removeTaskWithUndo, removeGoalWithUndo } from "./editor.js";
 import { openTaskActions, openGoalActions } from "./actions.js";
 import { renderToday } from "./views/today.js";
 import { renderGoals, forgetGoal as forgetOpenGoal } from "./views/goals.js";
@@ -29,6 +29,7 @@ export function createApp(mount, session, initial) {
     commit() { session.commit(state); app.render(); },
     reload(next) { setState(next); app.render(); }, // 会话重新激活时换一份状态，不重建壳
     openTask(key) { return openTaskEditor(app, key); },
+    copyTask(t) { return duplicateIntoEditor(app, t); },
     /* 显式操作面板替代桌面拖拽：排序/改档/取消关联都在这里 */
     openTaskActions(key) { return openTaskActions(app, key); },
     openGoalActions(gid) { return openGoalActions(app, gid); },
