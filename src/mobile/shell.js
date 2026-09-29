@@ -6,7 +6,7 @@ import { pinyin } from "pinyin-pro";
 import { TODAY_TABS } from "./tabs.js";
 import { openTaskEditor, openGoalEditor, duplicateIntoEditor, removeTaskWithUndo, removeGoalWithUndo } from "./editor.js";
 import { openTaskActions, openGoalActions } from "./actions.js";
-import { renderToday } from "./views/today.js";
+import { renderToday, isBulkMode, exitBulk } from "./views/today.js";
 import { renderGoals, forgetGoal as forgetOpenGoal } from "./views/goals.js";
 import { renderBoard } from "./views/board.js";
 import { renderMe } from "./views/me.js";
@@ -59,9 +59,11 @@ export function createApp(mount, session, initial) {
     },
     render() {
       const tab = app.route();
+      if (tab !== "today") exitBulk(); // 批量态是"今日这一屏"的选择模式，切走即退出（与桌面切视图一致）
       const body = mount.querySelector(".m-body");
       document.body.className = "m theme-" + (state.theme || "e");
       (VIEWS[tab] || renderToday)(body, app);
+      mount.querySelector("#mAdd").style.display = isBulkMode() ? "none" : ""; // 批量态只留底栏一个主操作区
       mount.querySelectorAll(".m-tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
     },
   };
@@ -88,7 +90,7 @@ export function createApp(mount, session, initial) {
   window.addEventListener("beforeunload", () => session.flush(state));
   document.addEventListener("visibilitychange", async () => {
     if (document.hidden) return;
-    const r = await session.pull(state, () => !!mount.querySelector(".m-sheet.show"));
+    const r = await session.pull(state, () => !!mount.querySelector(".m-sheet.show") || isBulkMode()); // 面板开着或正在多选都不打断
     if (r.adopted) { setState(r.adopted); app.render(); } // 切回前台先跟一次云端，避免两台设备各写各的
   });
   return app;

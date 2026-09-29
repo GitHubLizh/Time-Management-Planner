@@ -140,6 +140,25 @@ a{color:var(--accent)}
 .m-note{margin-top:12px;font-size:.74rem;color:var(--muted);line-height:1.5}
 .m-add{width:100%;min-height:44px;margin-top:10px;border:1.5px dashed var(--line);border-radius:10px;background:transparent;color:var(--accent);font-size:.82rem;font-weight:700}
 
+/* ---------- 批量选择（今日页的"选择"模式，与桌面同一口径）---------- */
+.m-pick{margin-left:6px;min-height:44px;padding:0 12px;border:1.5px solid var(--accent);border-radius:10px;background:transparent;color:var(--accent);font-size:.78rem;font-weight:700}
+.m-row.pick{cursor:pointer}
+.m-row.pick.on{background:var(--accent-soft);border-radius:12px}
+.m-row.pick.on .m-chk{background:var(--accent-soft);border-color:var(--accent)}
+.m-row.pick.on .m-chk svg{display:block}
+.m-bulkbar{
+  position:fixed;left:0;right:0;bottom:var(--tab-h);z-index:30;background:var(--card);
+  border-top:1.5px solid var(--ink);padding:8px 14px 10px;box-shadow:0 -6px 18px rgba(30,25,20,.12);
+}
+.m-bulkbar .top{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.m-bulkbar .all{display:flex;align-items:center;gap:6px;font-size:.8rem;min-height:44px}
+.m-bulkbar .all input{width:22px;height:22px;accent-color:var(--accent)}
+.m-bulkbar .n{font-size:.78rem;color:var(--muted);flex:1}
+.m-bulkbar .top .m-btn{width:auto;flex:0 0 auto;padding:0 14px;font-size:.8rem}
+.m-bulkbar .row{display:flex;gap:10px}
+.m-bulkbar .m-btn[disabled]{opacity:.4}
+.m-bulkspacer{height:130px}   /* 实测底栏 123px；body 只预留了 tab 高度，差额由这段补 */
+
 /* ---------- 平板：同一套壳加宽，主内容两栏 ---------- */
 @media(min-width:700px){
   :root{--tab-h:52px}
