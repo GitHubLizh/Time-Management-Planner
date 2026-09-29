@@ -392,6 +392,14 @@ F("setState")(initialState);
 
 /* ================= 写操作（core/mutations） =================
    移动壳与小程序将直接调用这一层，所以钉住"改了什么"和"撤销能否精确还原" */
+console.log("\n== 筛选摘要 filterSummary（桌面 banner 与移动壳胶囊共用一份文案口径）==");
+eq("无筛选 → 空数组", F("filterSummary")({ keyword: "  ", year: "", month: "", prio: "", status: "", type: "", slot: "" }, { onlyOverdue: false, onlyLate: false }), []);
+eq("九项按桌面 banner 原顺序", F("filterSummary")({ keyword: "周报", year: "2026", month: "09", prio: "1", status: "done", type: "工作项目", slot: "morning" }, { onlyOverdue: true, onlyLate: true }),
+  ['标题匹配「周报」', "2026 年", "9 月", "P1 重要紧急", "已完成", "工作项目", "早晨", "仅逾期未完成", "仅迟完"]);
+eq("月份去前导零", F("filterSummary")({ keyword: "", month: "03" }, {}), ["3 月"]);
+eq("时段走 SLOT_NAMES", F("filterSummary")({ keyword: "", slot: "evening" }, {}), ["晚间"]);
+eq("只开迟完不含逾期字样", F("filterSummary")({ keyword: "" }, { onlyLate: true }), ["仅迟完"]);
+
 console.log("\n== 写操作与撤销 ==");
 const baseTasks=()=>[
   {id:"a1",title:"任务一",type:"工作项目",priority:1,status:"todo",start:"2026-09-01",end:"2026-09-18",progress:0,plannedTime:10,actualTime:0,course:false,room:"",teacher:"",dow:null,timeSlot:"",goalId:"g1",note:"",doneAt:"",recur:null,doneOn:{}},

@@ -3,7 +3,7 @@ import { TYPES, PRIO_NAMES, STATUS_NAMES, RECUR_RULES, DOW_NAMES, GOAL_LEVELS } 
 import { pad, fmt, parseD, addDays, monthRange, fmtDur } from "./core/dates.js";
 import { today as TODAY } from "./core/clock.js";
 import { CN_HOLIDAY, HOLIDAY_SRC, SOLAR_FESTIVALS, refreshHolidayYear, lunarOf } from "./core/holidays.js";
-import { setPinyinImpl } from "./core/filters.js";
+import { setPinyinImpl, filterSummary } from "./core/filters.js";
 import { recurText, occurrencesBetween, occDone, toggleOcc, recurDoneIn, recurStreak, statsPool } from "./core/recur.js";
 import { state, setState, defaultState, mk, taskById } from "./core/schema.js";
 import { filteredTasks, tasksOn, splitId, isOverdue, overdueDays, overdueList, syncDoneAt, isLateDone, lateDays, lateList, statsOf, hasActiveFilter,
@@ -371,13 +371,7 @@ function renderBanner(){
   const list=filteredTasks();
   const n=list.length;
   const rc=list.filter(t=>t.recur).length;
-  const f=state.filters;const parts=[];
-  if(f.keyword.trim())parts.push('标题匹配「'+f.keyword.trim()+'」');
-  if(f.year)parts.push(f.year+" 年");if(f.month)parts.push(parseInt(f.month)+" 月");
-  if(f.prio)parts.push(PRIO_NAMES[f.prio]);if(f.status)parts.push(STATUS_NAMES[f.status]);
-  if(f.type)parts.push(f.type);if(f.slot)parts.push({morning:"早晨",afternoon:"下午",evening:"晚间"}[f.slot]);
-  if(state.onlyOverdue)parts.push("仅逾期未完成");
-  if(state.onlyLate)parts.push("仅迟完");
+  const parts=filterSummary(state.filters,state);
   const od=overdueList(state.tasks);
   const longest=od.length?Math.max(...od.map(overdueDays)):0;
   const late=lateList(state.tasks);

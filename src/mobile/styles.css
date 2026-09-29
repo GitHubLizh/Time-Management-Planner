@@ -149,6 +149,14 @@ a{color:var(--accent)}
 .m-act.danger{border-color:var(--overdue);color:var(--overdue)}
 .m-act.danger small{color:var(--overdue);opacity:.75}
 .m-act.off{opacity:.4}
+.m-act.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.m-act.on small{color:var(--accent);opacity:.8}
+.m-fchip{
+  display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:8px 12px;
+  border:1.5px solid var(--accent);border-radius:10px;background:var(--accent-soft);color:var(--accent);
+}
+.m-fchip .t{flex:1;min-width:0;font-size:.78rem;line-height:1.4}
+.m-fchip button{flex:0 0 auto;min-height:44px;padding:0 12px;border:1.5px solid var(--accent);border-radius:8px;background:var(--card);color:var(--accent);font-size:.76rem;font-weight:700}
 .m-note{margin-top:12px;font-size:.74rem;color:var(--muted);line-height:1.5}
 .m-add{width:100%;min-height:44px;margin-top:10px;border:1.5px dashed var(--line);border-radius:10px;background:transparent;color:var(--accent);font-size:.82rem;font-weight:700}
 

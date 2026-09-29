@@ -11,6 +11,7 @@ import { dayGroups, filteredTasks, tasksOn, statsOf, isOverdue, overdueDays, wee
 import { occDone, recurText, recurDoneIn, toggleOcc, statsPool } from "../../core/recur.js";
 import { toggleTaskDone, bulkToggleDone, bulkDelete } from "../../core/mutations.js";
 import { taskById } from "../../core/schema.js";
+import { filterChipHTML, bindFilterChip } from "../filters.js";
 
 const WD = ["日", "一", "二", "三", "四", "五", "六"];
 const CHK = "<svg viewBox='0 0 24 24'><path d='M4 12l5 5L20 6'/></svg>";
@@ -112,7 +113,7 @@ export function renderToday(body, app) {
       ${ds !== fmt(TODAY) ? `<button class="m-today" data-d="today">${mode === "week" ? "本周" : "今天"}</button>` : ""}
     </div>`;
 
-  body.innerHTML = segHTML(mode) + bar + (mode === "week"
+  body.innerHTML = segHTML(mode) + bar + filterChipHTML(app) + (mode === "week"
     ? `<div class="m-card">${weekHTML(ds, pool)}</div>`
     : `<div class="m-card">
       <h2>任务<span class="count">${g.normal.length ? g.normal.filter(t => t.status === "done").length + "/" + g.normal.length : ""}</span>
@@ -136,6 +137,7 @@ export function renderToday(body, app) {
       </div>
     </div>` : ""}`);
 
+  bindFilterChip(body, app);
   body.querySelectorAll("[data-mode]").forEach(b => b.addEventListener("click", () => {
     if (b.dataset.mode === mode) return;
     st.todayMode = b.dataset.mode;

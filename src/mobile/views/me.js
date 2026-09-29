@@ -1,5 +1,6 @@
 /* 我的 tab：进度概览、筛选、主题、账号。详细浏览（课表/周/月/年矩阵）仍在桌面完成。 */
 import { statsOf, overdueList, filteredTasks, hasActiveFilter } from "../../core/selectors.js";
+import { filterSummary } from "../../core/filters.js";
 import { statsPool } from "../../core/recur.js";
 import { goalProgress } from "../../core/goals.js";
 import { goalsOf } from "../../core/goals.js";
@@ -15,6 +16,7 @@ export function renderMe(body, app) {
   document.getElementById("mSub").textContent = (app.user && app.user.email) || "";
   const stat = statsOf(statsPool(filteredTasks()));
   const od = overdueList().length;
+  const parts = filterSummary(st.filters, st);
   const monthStr = fmt(TODAY).slice(0, 7);
   const monthTasks = statsPool(st.tasks).filter(t => t.start <= monthStr + "-31" && t.end >= monthStr + "-01");
   const ms = statsOf(monthTasks);
@@ -38,8 +40,9 @@ export function renderMe(body, app) {
           <span style="font-size:.78rem">${gs.length} 个</span></div>`;
       }).join("")}
     </div>
-    <div class="m-card"><h2>筛选</h2>
+    <div class="m-card"><h2>筛选<span class="count">${parts.length ? parts.length + " 项生效" : "未启用"}</span></h2>
       <div class="m-field"><label for="kw">搜索任务标题（支持拼音首字母）</label><input id="kw" type="search" value="${esc(st.filters.keyword)}" placeholder="例如 xzb 搜到「写周报」"></div>
+      <button class="m-btn ghost" id="openFilter" style="height:48px;margin-bottom:10px">筛选条件${parts.length ? " · " + esc(parts.join(" · ")) : ""}</button>
       ${hasActiveFilter() ? '<button class="m-btn ghost" id="resetFilter" style="height:44px">清除筛选</button>' : '<div style="font-size:.78rem;color:var(--muted)">当前显示全部任务</div>'}
     </div>
     <div class="m-card"><h2>外观与账号</h2>
@@ -53,7 +56,8 @@ export function renderMe(body, app) {
   const apply = () => { st.filters.keyword = kw.value.trim(); app.commit(); };
   kw.addEventListener("compositionend", apply);
   kw.addEventListener("input", () => { if (!kw.isComposing) { clearTimeout(timer); timer = setTimeout(apply, 300); } });
-  const rf = body.querySelector("#resetFilter"); if (rf) rf.addEventListener("click", () => { st.filters = { keyword: "", year: "", month: "", prio: "", status: "", type: "", slot: "" }; app.commit(); });
+  const rf = body.querySelector("#resetFilter"); if (rf) rf.addEventListener("click", () => app.clearFilters());
+  body.querySelector("#openFilter").addEventListener("click", () => app.openFilters());
   body.querySelector("#theme").addEventListener("click", () => { st.theme = st.theme === "e" ? "i" : "e"; app.commit(); });
   bindDesktopLink(body);
   body.querySelector("#out").addEventListener("click", async () => { app.session.flush(st); await app.session.auth.signOut(); location.reload(); });

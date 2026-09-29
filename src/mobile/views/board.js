@@ -4,6 +4,7 @@ import { kanbanSplit } from "../../core/selectors.js";
 import { filteredTasks } from "../../core/selectors.js";
 import { applyKanbanDrop } from "../../core/mutations.js";
 import { taskById } from "../../core/schema.js";
+import { filterChipHTML, bindFilterChip } from "../filters.js";
 
 const STATUSES = [["todo", "未开始"], ["doing", "进行中"], ["done", "已完成"]];
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
@@ -19,6 +20,7 @@ export function renderBoard(body, app) {
       <button class="m-btn ghost" data-km="status" style="height:44px;${st.kanbanMode === "status" ? "border-color:var(--accent);color:var(--accent)" : ""}">按状态</button>
       <button class="m-btn ghost" data-km="type" style="height:44px;${st.kanbanMode === "type" ? "border-color:var(--accent);color:var(--accent)" : ""}">按类型</button>
     </div>
+    ${filterChipHTML(app)}
     ${recurCount ? `<div style="font-size:.76rem;color:var(--muted);margin-bottom:10px">另有 ${recurCount} 条循环任务按天打卡，不归列 —— 在"今日"里打卡</div>` : ""}
     ${cols.map(c => `<div class="m-card"><h2>${esc(c.label)}<span class="count">${c.tasks.length}</span></h2>
       ${c.tasks.map(t => `<div style="border-bottom:1px dashed var(--line);padding:10px 0">
@@ -34,6 +36,7 @@ export function renderBoard(body, app) {
         </div></div>`).join("") || '<div class="m-empty">空</div>'}
     </div>`).join("")}`;
 
+  bindFilterChip(body, app);
   body.querySelectorAll("[data-km]").forEach(b => b.addEventListener("click", () => { st.kanbanMode = b.dataset.km; app.commit(); }));
   body.querySelectorAll("[data-st]").forEach(b => b.addEventListener("click", () => {
     const t = taskById(b.dataset.id); if (!t) return;
