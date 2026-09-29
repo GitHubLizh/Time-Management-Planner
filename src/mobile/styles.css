@@ -81,6 +81,18 @@ a{color:var(--accent)}
 .bar i{display:block;height:100%;background:var(--accent);border-radius:3px}
 
 .m-datebar{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.m-seg{display:flex;margin-bottom:10px;border:1.5px solid var(--line);border-radius:10px;overflow:hidden;background:var(--card)}
+.m-seg button{flex:1;min-height:44px;font-size:.82rem;font-weight:600;color:var(--muted)}
+.m-seg button.on{background:var(--accent-soft);color:var(--accent)}
+.m-day{padding:8px 0;border-top:1px dashed var(--line)}
+.m-day:first-child{border-top:none;padding-top:0}
+.m-day .hd{display:flex;align-items:baseline;gap:8px;font-size:.76rem;color:var(--muted)}
+.m-day .hd b{font-size:1rem;color:var(--ink)}
+.m-day.today .hd b{color:var(--accent)}
+.m-day.today .hd b::after{content:" · 今天";font-size:.7rem;font-weight:400;color:var(--accent)}
+.m-day .hd .cnt{margin-left:auto}
+.m-day .m-row{min-height:48px}
+.m-row.wk{min-height:44px;padding:0}   /* 字号仍走正文 .95rem：省高度靠的是去掉 meta 行，不是把字缩小 */
 .m-datebar .day{flex:1;text-align:center;font-size:.95rem;font-weight:700}
 .m-datebar .day .wd{display:block;font-size:.72rem;font-weight:400;color:var(--muted)}
 .m-nav{width:44px;height:44px;border:1.5px solid var(--line);border-radius:10px;background:var(--card);font-size:1.1rem}

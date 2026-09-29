@@ -12,7 +12,7 @@ export function newGoalId(){return "g"+(_gid++);}
 export function defaultState(){
   return {tasks:[],goals:{weekly:[],monthly:[],yearly:[],reviews:[]},view:"day",theme:"e",
     filters:{keyword:"",year:"",month:"",prio:"",status:"",type:"",slot:""},
-    selDate:fmt(today),kanbanMode:"status",kanbanDragHintSeen:false,onlyOverdue:false,onlyLate:false};
+    selDate:fmt(today),kanbanMode:"status",todayMode:"day",kanbanDragHintSeen:false,onlyOverdue:false,onlyLate:false};
 }
 export function normalize(s){
   const g=s.goals||{};
