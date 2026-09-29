@@ -3,12 +3,12 @@
    而"循环↔完成状态↔progress"的联动调 core/mutations.applyTaskDraftRules，与桌面同一条。
    字段 id 一律用 f 前缀：壳的标题栏占了 #mTitle、副标题占 #mSub，
    同名会让 getElementById 取到标题栏而非输入框（曾因此"新增"永远提交空标题）。 */
-import { TYPES, PRIO_NAMES, STATUS_NAMES, RECUR_RULES, DOW_NAMES } from "../core/constants.js";
+import { TYPES, PRIO_NAMES, STATUS_NAMES, DOW_NAMES, GOAL_LEVELS } from "../core/constants.js";
 import { fmt, parseD } from "../core/dates.js";
 import { today as TODAY } from "../core/clock.js";
 import { taskById } from "../core/schema.js";
-import { goalsOf } from "../core/goals.js";
-import { applyTaskDraftRules, saveTask, deleteTask } from "../core/mutations.js";
+import { goalsOf, goalById, goalLevel } from "../core/goals.js";
+import { applyTaskDraftRules, saveTask, deleteTask, saveGoal, deleteGoal } from "../core/mutations.js";
 
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 const FREQS = [["", "不重复"], ["daily", "每天"], ["workday", "每个法定工作日"], ["weekly", "每周固定几天"], ["monthly", "每月固定一天"]];
@@ -103,13 +103,53 @@ export function openTaskEditor(app, key) {
       doClose();
     });
     const del = box.querySelector('[data-act="del"]');
-    if (del) del.addEventListener("click", () => {
-      const r = deleteTask(id);
-      if (!r) return doClose();
-      app.commit();
-      doClose();
-      app.toast(`已删除「${r.title}」`, () => { r.undo(); app.commit(); });
-    });
+    if (del) del.addEventListener("click", () => { doClose(); app.deleteTask(id); });
   });
   return close;
+}
+
+/* 目标编辑面板：改名 + 换档位 + 新增。档位与数组顺序的语义与桌面一致。 */
+export function openGoalEditor(app, gid, presetLevel) {
+  const editing = gid ? goalById(gid) : null;
+  if (gid && !editing) return;
+  const level = gid ? goalLevel(gid) : (presetLevel || "weekly");
+  app.sheet(editing ? "编辑目标" : "新增目标", `
+    <div class="m-field"><label for="gText">目标描述</label>
+      <input id="gText" type="text" value="${esc(editing ? editing.title : "")}" placeholder="想要达成什么" autocomplete="off"></div>
+    <div class="m-field"><label for="gLevel">档位</label>
+      <select id="gLevel">${GOAL_LEVELS.map(([k, l]) => `<option value="${k}"${k === level ? " selected" : ""}>${l}目标</option>`).join("")}</select></div>
+    <div class="m-sheetActs">
+      ${editing ? '<button class="m-btn danger" data-act="del" type="button">删除</button>' : ""}
+      <button class="m-btn ghost" data-close type="button">取消</button>
+      <button class="m-btn" data-act="save" type="button">${editing ? "保存" : "添加"}</button>
+    </div>
+    <p class="m-msg" id="gErr" aria-live="polite"></p>`,
+    (box, close) => {
+      const $ = s => box.querySelector(s);
+      $('[data-act="save"]').addEventListener("click", () => {
+        const title = $("#gText").value.trim();
+        if (!title) { $("#gErr").textContent = "请填写目标描述"; return; }
+        saveGoal(gid || null, title, $("#gLevel").value);
+        app.commit();
+        close();
+      });
+      const del = box.querySelector('[data-act="del"]');
+      if (del) del.addEventListener("click", () => { close(); app.deleteGoal(gid); });
+    });
+}
+
+/* 删除：core 给撤销数据与文案所需字段，浮条与时长归壳 */
+export function removeTaskWithUndo(app, id) {
+  const r = deleteTask(id);
+  if (!r) return;
+  app.commit();
+  app.toast(`已删除「${r.title}」${r.isRecur && r.occCount ? `（含 ${r.occCount} 条打卡记录）` : ""}`, () => { r.undo(); app.commit(); });
+}
+
+export function removeGoalWithUndo(app, id) {
+  const r = deleteGoal(id);
+  if (!r) return;
+  app.forgetGoal(id);       // 折叠集合等视图态由壳自己清，不进 core
+  app.commit();
+  app.toast(`已删除目标「${r.title}」${r.affectedCount ? `，${r.affectedCount} 条任务已解除关联` : ""}`, () => { r.undo(); app.commit(); });
 }

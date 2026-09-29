@@ -1,5 +1,6 @@
 /* 今日 tab：手机上最高频的一屏——看今天要做什么、打卡、看进度。
-   只列"今天这一天的事"，周/月/年的汇总口径放在"我的"，不做桌面式的多卡同屏。 */
+   只列"今天这一天的事"，周/月/年的汇总口径放在"我的"，不做桌面式的多卡同屏。
+   条目右侧的 ⋯ 打开显式操作面板（编辑 / 上下移 / 取消关联 / 删除），替代桌面的拖拽。 */
 import { fmt, parseD, addDays, monthRange } from "../../core/dates.js";
 import { today as TODAY } from "../../core/clock.js";
 import { dayGroups, filteredTasks, tasksOn, statsOf, isOverdue, overdueDays } from "../../core/selectors.js";
@@ -22,7 +23,7 @@ function row(t, ds, app) {
       <div class="title">${esc(t.title)}</div>
       <div class="meta">${esc(meta)}${late}</div>
     </div>
-    <button class="m-nav" data-act="edit" aria-label="编辑" style="font-size:.9rem">⋯</button>
+    <button class="m-nav" data-act="more" aria-label="更多操作" style="font-size:.9rem">⋯</button>
   </div>`;
 }
 
@@ -68,6 +69,6 @@ export function renderToday(body, app) {
       if (t.recur) toggleOcc(t, date || ds); else toggleTaskDone(t);
       app.commit();
     });
-    el.querySelector('[data-act="edit"]').addEventListener("click", () => app.openTask && app.openTask(el.dataset.id));
+    el.querySelector('[data-act="more"]').addEventListener("click", () => app.openTaskActions(el.dataset.id));
   });
 }

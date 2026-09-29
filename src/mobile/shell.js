@@ -4,9 +4,10 @@ import { state, setState } from "../core/schema.js";
 import { setPinyinImpl } from "../core/filters.js";
 import { pinyin } from "pinyin-pro";
 import { TODAY_TABS } from "./tabs.js";
-import { openTaskEditor } from "./editor.js";
+import { openTaskEditor, openGoalEditor, removeTaskWithUndo, removeGoalWithUndo } from "./editor.js";
+import { openTaskActions, openGoalActions } from "./actions.js";
 import { renderToday } from "./views/today.js";
-import { renderGoals } from "./views/goals.js";
+import { renderGoals, forgetGoal as forgetOpenGoal } from "./views/goals.js";
 import { renderBoard } from "./views/board.js";
 import { renderMe } from "./views/me.js";
 
@@ -18,7 +19,9 @@ export function createApp(mount, session, initial) {
   setState(initial || { tasks: [], goals: { weekly: [], monthly: [], yearly: [], reviews: [] } });
 
   const app = {
-    state,
+    /* 必须用 getter：core 的 setState 会重新赋值导出绑定，快照会让 reload/采纳远端之后的
+       所有写操作落到那份孤儿对象上（视图改 st.selDate、壳持久化 state，两边不是同一个对象）。 */
+    get state() { return state; },
     get user() { return session.user; },
     route: () => (location.hash.replace(/^#\//, "") || "today").split("?")[0],
     navigate(tab) { if (app.route() !== tab) location.hash = "#/" + tab; },
@@ -26,6 +29,14 @@ export function createApp(mount, session, initial) {
     commit() { session.commit(state); app.render(); },
     reload(next) { setState(next); app.render(); }, // 会话重新激活时换一份状态，不重建壳
     openTask(key) { return openTaskEditor(app, key); },
+    /* 显式操作面板替代桌面拖拽：排序/改档/取消关联都在这里 */
+    openTaskActions(key) { return openTaskActions(app, key); },
+    openGoalActions(gid) { return openGoalActions(app, gid); },
+    openGoal(gid) { return openGoalEditor(app, gid); },
+    newGoal(level) { return openGoalEditor(app, null, level); },
+    deleteTask(id) { return removeTaskWithUndo(app, id); },
+    deleteGoal(id) { return removeGoalWithUndo(app, id); },
+    forgetGoal(id) { return forgetOpenGoal(id); },
     toast(msg, undo) {
       const bar = mount.querySelector(".m-toast");
       bar.textContent = msg;
