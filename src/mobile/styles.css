@@ -179,14 +179,37 @@ a{color:var(--accent)}
 .m-bulkbar .m-btn[disabled]{opacity:.4}
 .m-bulkspacer{height:130px}   /* 实测底栏 123px；body 只预留了 tab 高度，差额由这段补 */
 
-/* ---------- 平板：同一套壳加宽，主内容两栏 ---------- */
+/* 右栏两种状态：没选中时一条提示，选中后是详情/编辑卡片。窄屏整栏不出现（面板走 .m-sheet）。
+   提示用 :empty 的伪元素出，不是 JS 填的占位——版式不该等一个可能不派发的事件。
+   这两条必须在 @media 之前：同一个选择器写在后面会把上面的 display:block 顶掉（实测踩过）。 */
+.m-detail{display:none}
+.m-detail:empty::before{
+  content:"点左侧列表里的条目，它的详情和编辑器出现在这一栏。";
+  display:block;border:1.5px dashed var(--line);border-radius:var(--radius);padding:16px;
+  font-size:.8rem;color:var(--muted);
+}
+.m-detailCard{background:var(--card);border:1.5px solid var(--line);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow)}
+.m-detailCard h3{font-size:1rem;margin-bottom:12px}
+.m-row.sel{background:var(--accent-soft);border-radius:12px}
+
+/* ---------- 平板：同一套壳加宽，主内容两栏 ----------
+   断点与 layout.js 的 isWide() 同一个值（700px），两边必须一起改。
+   --tab-h 归零：fab / 浮条 / 批量底栏的定位全部写成 calc(... + var(--tab-h))，
+   tab 上移后底部没有固定栏了，归零就自动贴到屏幕下沿，不用逐个再算。 */
 @media(min-width:700px){
-  :root{--tab-h:52px}
+  :root{--tab-h:0px;--tabs-top:52px;--head-h:64px} /* head-h：实测头部 61px，留 3px 余量，防止右栏 sticky 顶边被头部盖住 */
+  body{padding-top:var(--tabs-top);padding-bottom:16px}
   .m-root{max-width:1000px}
-  .m-tabs{left:0;right:0}
-  .m-cols{display:grid;grid-template-columns:minmax(300px,1fr) minmax(300px,1.2fr);gap:16px;align-items:start}
-  .m-detail{position:sticky;top:70px}
-  .m-sheet{left:auto;right:16px;bottom:calc(var(--tab-h) + 16px);max-width:420px;border-radius:16px;border:1.5px solid var(--ink)}
+  .m-head{top:var(--tabs-top);padding:8px 14px 6px}
+  .m-tabs{top:0;bottom:auto;height:var(--tabs-top);padding-bottom:0;
+    border-top:none;border-bottom:1px solid var(--line)}
+  .m-tabs button{flex-direction:row;gap:7px;font-size:.84rem}   /* 顶栏里图标与文字并排，纵向是底栏的形态 */
+  .m-tabs button svg{width:18px;height:18px}
+  .m-cols{display:grid;grid-template-columns:minmax(300px,1fr) minmax(320px,1.15fr);gap:16px;align-items:start;padding:0 14px}
+  .m-body{padding:0}
+  .m-row{cursor:pointer}   /* 宽屏条目主体可点（窄屏不可，手机上单击进面板会误触） */
+  .m-detail{display:block;position:sticky;top:calc(var(--tabs-top) + var(--head-h));
+    max-height:calc(100dvh - var(--tabs-top) - var(--head-h) - 16px);overflow-y:auto}
 }
 /* ---------- 编辑器面板内的小结构 ---------- */
 .m-two{display:grid;grid-template-columns:1fr 1fr;gap:10px}

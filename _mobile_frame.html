@@ -62,6 +62,31 @@ function metrics(tab) {
 }
 window.__report = () => ["today", "goals", "board", "me"].map(metrics);
 window.__app = app;   // 探针用：驱动真实 click 以验证 FAB / 编辑器链路
+
+/* 版式形态读数：宽屏该出现两栏 + 顶部 tab + 右栏，窄屏该是单列 + 底部 tab + 底部面板。
+   只量可计算的几何，不做"好不好看"的判断——那部分只能由真机给结论。 */
+window.__layout = () => {
+  const g = sel => document.querySelector(sel);
+  const cs = el => el ? getComputedStyle(el) : null;
+  const tabs = g(".m-tabs"), tb = tabs ? tabs.getBoundingClientRect() : null;
+  const cols = cs(g(".m-cols"));
+  const detail = g(".m-detail"), dcs = cs(detail);
+  const sheet = cs(g(".m-sheet"));
+  return {
+    vw: innerWidth, vh: innerHeight,
+    tabRow: tb ? Math.round(tb.top) : null,            // 顶部 tab 时接近 0，底部 tab 时贴近视口下沿
+    tabsAtTop: tb ? tb.top < innerHeight / 2 : null,
+    colsDisplay: cols.display,                          // 窄屏 block，宽屏 grid
+    colsTemplate: cols.gridTemplateColumns,             // "300px 400px" 之类，两栏的直接证据
+    detailShown: dcs.display !== "none",
+    detailPos: dcs.position,
+    detailRect: detail ? Math.round(detail.getBoundingClientRect().left) + "x" + Math.round(detail.getBoundingClientRect().width) : null,
+    sheetFixed: sheet.position,                         // 宽屏不该再有贴底面板
+    bodyPadTop: Math.round(parseFloat(getComputedStyle(document.body).paddingTop)),
+    rowCursor: cs(g(".m-row")) ? cs(g(".m-row")).cursor : null,
+    overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  };
+};
 </script>
 </body>
 </html>

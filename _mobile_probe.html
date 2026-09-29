@@ -6,8 +6,14 @@
 <body>
 <iframe id="p" src="/_mobile_frame.html" width="390" height="844"></iframe>
 <script>
-// 读数由 frame 内自己算，这里只负责把结果取回来打印
+// 读数由 frame 内自己算，这里只负责把结果取回来打印。
+// ?w=820&h=1180 可以按断点摆出平板视口（matchMedia 认的是 iframe 自己的宽度，不是外层窗口）。
+const q = new URLSearchParams(location.search);
+const f = document.getElementById('p');
+if (q.get('w')) f.width = +q.get('w');
+if (q.get('h')) f.height = +q.get('h');
 window.read = () => document.getElementById('p').contentWindow.__report();
+window.layout = () => document.getElementById('p').contentWindow.__layout();
 </script>
 </body>
 </html>

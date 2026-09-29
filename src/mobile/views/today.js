@@ -12,6 +12,7 @@ import { occDone, recurText, recurDoneIn, toggleOcc, statsPool } from "../../cor
 import { toggleTaskDone, bulkToggleDone, bulkDelete } from "../../core/mutations.js";
 import { taskById } from "../../core/schema.js";
 import { filterChipHTML, bindFilterChip } from "../filters.js";
+import { isWide } from "../layout.js";
 
 const WD = ["日", "一", "二", "三", "四", "五", "六"];
 const CHK = "<svg viewBox='0 0 24 24'><path d='M4 12l5 5L20 6'/></svg>";
@@ -47,7 +48,7 @@ function row(t, ds, opts) {
       <div class="title">${esc(t.title)}</div>
     </div>`;
   }
-  return `<div class="m-row ${done ? "done" : ""}" data-id="${key}">
+  return `<div class="m-row ${done ? "done" : ""} ${opts.sel ? "sel" : ""}" data-id="${key}">
     <button class="m-chk" data-act="toggle" aria-label="${done ? "取消完成" : "完成"}">${CHK}</button>
     <span class="prio p${t.priority}"></span>
     <div style="flex:1;min-width:0">
@@ -118,13 +119,13 @@ export function renderToday(body, app) {
     : `<div class="m-card">
       <h2>任务<span class="count">${g.normal.length ? g.normal.filter(t => t.status === "done").length + "/" + g.normal.length : ""}</span>
         ${g.list.length ? `<button class="m-pick" data-bulk="1">${bulkMode ? "退出选择" : "选择"}</button>` : ""}</h2>
-      ${g.normal.map(t => row(t, ds, { bulk: bulkMode })).join("") || '<div class="m-empty">今天没有单次任务</div>'}
+      ${g.normal.map(t => row(t, ds, { bulk: bulkMode, sel: keyOf(t, ds) === app.selKey })).join("") || '<div class="m-empty">今天没有单次任务</div>'}
     </div>
     ${g.recurring.length ? `<div class="m-card"><h2>每日习惯<span class="count">${g.recurring.length} 项</span></h2>
-      ${g.recurring.map(t => row(t, ds, { bulk: bulkMode })).join("")}
+      ${g.recurring.map(t => row(t, ds, { bulk: bulkMode, sel: keyOf(t, ds) === app.selKey })).join("")}
       ${bulkMode ? "" : `<div style="font-size:.74rem;color:var(--muted);margin-top:8px">${esc(recurDone)}</div>`}</div>` : ""}
     ${g.courses.length ? `<div class="m-card"><h2>今天的课<span class="count">${g.courses.length} 节</span></h2>
-      ${g.courses.map(t => row(t, ds, { bulk: bulkMode })).join("")}</div>` : ""}
+      ${g.courses.map(t => row(t, ds, { bulk: bulkMode, sel: keyOf(t, ds) === app.selKey })).join("")}</div>` : ""}
     ${bulkMode ? `<div class="m-bulkspacer"></div><div class="m-bulkbar">
       <div class="top">
         <label class="all"><input type="checkbox" id="mBulkAll"${keys.length && bulkSel.size >= keys.length ? " checked" : ""}>全选</label>
@@ -179,6 +180,15 @@ export function renderToday(body, app) {
       app.commit();
     });
     const more = el.querySelector('[data-act="more"]');
-    if (more) more.addEventListener("click", () => app.openTaskActions(el.dataset.id)); // 周视图的条目不给 ⋯
+    if (more) more.addEventListener("click", () => app.openTaskActions(el.dataset.id));
+    /* 平板两栏：条目主体（打卡按钮与 ⋯ 之外的区域）单击即在右栏展开它的详情/编辑器。
+       窄屏刻意不绑——手机上单击就进全屏面板会误触，编辑仍走 ⋯ 面板（那是有意识的二次动作）。 */
+    el.addEventListener("click", e => {
+      if (!isWide() || e.target.closest("button")) return;
+      body.querySelectorAll(".m-row.sel").forEach(x => x.classList.remove("sel"));
+      el.classList.add("sel");
+      app.selKey = el.dataset.id;
+      app.openTask(el.dataset.id);
+    }); // 周视图的条目不给 ⋯
   });
 }
