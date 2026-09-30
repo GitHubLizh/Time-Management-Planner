@@ -17,8 +17,11 @@ const TIMEOUT_MS = 15000;
 // 转发这些请求头；其余（含 Cookie、x-qoder-*、宿主相关头）一律丢弃
 const FORWARD_REQ = ["authorization", "apikey", "content-type", "accept", "accept-profile",
   "content-profile", "prefer", "x-client-info", "range"];
-// 回传这些响应头；上游的服务器信息不外泄
-const FORWARD_RES = ["content-type", "content-range", "prefer", "x-supabase-api-version"];
+// 回传这些响应头；上游的服务器信息不外泄。
+// location 必须在列：邮箱验证链接(/auth/v1/verify)经代理后上游回 302 把浏览器送回站点页，
+// 我们用 redirect:"manual" 不自动跟随，若不回传 Location，浏览器只收到一个没有目标地址的 302，
+// 手机邮箱链接登录就会停在空白/错误页。
+const FORWARD_RES = ["content-type", "content-range", "prefer", "x-supabase-api-version", "location"];
 
 function json(obj: unknown, status: number) {
   return new Response(JSON.stringify(obj), {
