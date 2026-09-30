@@ -10,7 +10,7 @@ import { filteredTasks, tasksOn, splitId, isOverdue, overdueDays, overdueList, s
   SLOT_TIMES, scheduleGrid, dayGroups, weekDaysOf, miniCalGrid, weekColumns, dailyCounts, monthTasksOf, monthGrid, progressWeeks, monthSpanFilter, ganttCells, yearSplit, yearMonthDays, monthSlice, monthlyRates, kanbanSplit } from "./core/selectors.js";
 import { goalsOf, goalLevel, goalById, goalTasks, goalVisibleThisWeek, taskGoal, goalProgress } from "./core/goals.js";
 import { authErrorMessage } from "./core/auth.js";
-import { toggleTaskDone, applyTaskDraftRules, duplicateTask, deleteTask as deleteTaskData, bulkToggleDone, bulkDelete, saveTask, saveGoal, deleteGoal as deleteGoalData, moveGoal, applyDrop, applyKanbanDrop } from "./core/mutations.js";
+import { toggleTaskDone, applyTaskDraftRules, duplicateTask, deleteTask as deleteTaskData, bulkToggleDone, bulkDelete, saveTask, saveGoal, deleteGoal as deleteGoalData, saveReview, deleteReview as deleteReviewData, moveGoal, applyDrop, applyKanbanDrop } from "./core/mutations.js";
 import { remoteUpdatedAt, localUpdatedAt, ensureUpdatedAt, decidePush, decidePull, buildPushPayload, decideInitialSource } from "./core/sync.js";
 
 /* 拼音实现由壳注入：core 不认识 pinyin-pro，小程序可以换成别的或不注入（首字母降级为不匹配） */
@@ -925,7 +925,13 @@ function renderYear(){
   }
   const html=`<div class="grid3" style="margin-bottom:14px">
     ${goalCardHTML("yearly",y+" 年度目标","")}
-    <div class="card"><h3>${I.refresh}每月复盘</h3>${state.goals.reviews.map(r=>`<div class="review-item"><b>${esc(r.m)}</b><p>${esc(r.text)}</p></div>`).join("")||'<div class="empty-tip">暂无复盘记录</div>'}</div>
+    <div class="card"><h3>${I.refresh}每月复盘<button class="btn small ghost" style="margin-left:auto" data-radd="1">${I.plus.replace('class=""','style="width:13px;height:13px"')} 写复盘</button></h3>
+      ${state.goals.reviews.map(r=>`<div class="review-item"><div class="rv-head"><b>${esc(r.m)}</b>
+        <span style="display:flex;gap:4px;flex:0 0 auto">
+          <button class="icon-btn" data-ract="edit" data-rm="${esc(r.m)}" title="编辑这个月的复盘">${I.edit}</button>
+          <button class="icon-btn" data-ract="del" data-rm="${esc(r.m)}" title="删除这个月的复盘">${I.trash}</button>
+        </span></div>
+        <p>${esc(r.text)||'<span style="color:var(--muted)">（还没写内容）</span>'}</p></div>`).join("")||'<div class="empty-tip">暂无复盘记录</div>'}</div>
     <div class="card"><h3>${I.chart}年度统计${recurCnt?`<span class="tag outline" style="margin-left:auto" title="${y} 年有 ${recurCnt} 条循环任务，其每日实例不进本页数字与下方图表">${recurCnt} 条循环未计入</span>`:""}</h3>
       <div class="grid2" style="margin-bottom:10px">
         <div class="stat-box"><div class="stat-num">${s.total}</div><div class="stat-label">年度任务</div></div>
@@ -941,6 +947,14 @@ function renderYear(){
   <div class="year-grid">${months}</div>`;
   $("#view-year").innerHTML=html;
   $("#view-year").onclick=e=>{
+    const add=e.target.closest("[data-radd]");
+    if(add){openReviewModal(null);return;}
+    const act=e.target.closest("[data-ract]");
+    if(act){
+      if(act.dataset.ract==="edit")openReviewModal(act.dataset.rm);
+      else deleteReview(act.dataset.rm);
+      return;
+    }
     const td=e.target.closest("td[data-date]");
     if(td){state.selDate=td.dataset.date;state.view="day";save();renderAll();}
   };
@@ -1175,6 +1189,35 @@ function deleteGoal(id){
 }
 $("#gCancel").addEventListener("click",()=>$("#goalModal").classList.remove("show"));
 $("#goalModal").addEventListener("click",e=>{if(e.target.id==="goalModal")$("#goalModal").classList.remove("show");});
+
+/* ---------- 每月复盘 ----------
+   业务键是月份（一月一篇），入口在年视图那张卡：写当月 / 改某月 / 删某月。
+   editingReview 是"正在改哪一篇"的视图态，和新写还是覆盖都由它决定，不进 core。 */
+let editingReview=null;
+function openReviewModal(m){
+  editingReview=m||null;
+  const r=m?state.goals.reviews.find(x=>x.m===m):null;
+  $("#rmTitle").textContent=m?"编辑 "+m+" 的复盘":"写每月复盘";
+  $("#rvMonth").value=m||state.selDate.slice(0,7); // 新增默认落在当前所选日期那一月
+  $("#rvText").value=r?r.text:"";
+  $("#rvDelete").style.visibility=m?"visible":"hidden";
+  $("#reviewModal").classList.add("show");
+}
+function deleteReview(m){
+  const r=deleteReviewData(m);if(!r)return;
+  save();renderAll();
+  showUndo(`已删除 ${r.m} 的复盘`,()=>{r.undo();save();renderAll();});
+}
+$("#rvCancel").addEventListener("click",()=>$("#reviewModal").classList.remove("show"));
+$("#reviewModal").addEventListener("click",e=>{if(e.target.id==="reviewModal")$("#reviewModal").classList.remove("show");});
+$("#rvDelete").addEventListener("click",()=>{$("#reviewModal").classList.remove("show");deleteReview(editingReview);});
+$("#rvSave").addEventListener("click",()=>{
+  const m=$("#rvMonth").value.slice(0,7),text=$("#rvText").value.trim(); // type=month 给 "2026-09"，截断防浏览器带出别的样子
+  if(!m){alert("请选择月份");return;}
+  if(!text){alert("请填写复盘内容");return;}
+  saveReview(m,text); // 同月覆盖、新月份插入，排序都在 core 里
+  save();$("#reviewModal").classList.remove("show");renderAll();
+});
 $("#gDelete").addEventListener("click",()=>{$("#goalModal").classList.remove("show");deleteGoal(editingGoal);});
 $("#gSave").addEventListener("click",()=>{
   const title=$("#gText").value.trim(),level=$("#gLevel").value;

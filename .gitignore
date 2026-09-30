@@ -14,6 +14,9 @@ _mobile_metrics.json
 # 金样本抓取产物（渲染等价对比用，勿提交）
 _golden*.json
 
+# 桌面探针页：由 index.html 生成的副本，改过 index.html 就要重新生成，提交只会漂移
+_desktop_frame.html
+
 # 开发期 UI 预览截图
 *-preview.png
 

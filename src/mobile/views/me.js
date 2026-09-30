@@ -6,6 +6,7 @@ import { goalProgress } from "../../core/goals.js";
 import { goalsOf } from "../../core/goals.js";
 import { fmt, parseD } from "../../core/dates.js";
 import { bindDesktopLink } from "../ui-pref.js";
+import { openReviewSheet, removeReviewWithUndo } from "../reviews.js";
 import { today as TODAY } from "../../core/clock.js";
 
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
@@ -40,6 +41,14 @@ export function renderMe(body, app) {
           <span style="font-size:.78rem">${gs.length} 个</span></div>`;
       }).join("")}
     </div>
+    <div class="m-card"><h2>每月复盘<span class="count">${st.goals.reviews.length} 篇</span></h2>
+      ${st.goals.reviews.map(r => `<div class="m-row" data-redit="${esc(r.m)}" style="min-height:auto">
+        <div style="flex:1;min-width:0"><div class="title">${esc(r.m)}</div>
+          <div class="meta">${esc(r.text) || "（还没写内容）"}</div></div>
+        <button class="m-nav" data-rdel="${esc(r.m)}" aria-label="删除 ${esc(r.m)} 的复盘" style="font-size:1rem">×</button>
+      </div>`).join("") || '<div class="m-empty">还没有复盘，先写这个月</div>'}
+      <button class="m-add" data-rnew="1">+ 写每月复盘</button>
+    </div>
     <div class="m-card"><h2>筛选<span class="count">${parts.length ? parts.length + " 项生效" : "未启用"}</span></h2>
       <div class="m-field"><label for="kw">搜索任务标题（支持拼音首字母）</label><input id="kw" type="search" value="${esc(st.filters.keyword)}" placeholder="例如 xzb 搜到「写周报」"></div>
       <button class="m-btn ghost" id="openFilter" style="height:48px;margin-bottom:10px">筛选条件${parts.length ? " · " + esc(parts.join(" · ")) : ""}</button>
@@ -57,6 +66,13 @@ export function renderMe(body, app) {
   kw.addEventListener("compositionend", apply);
   kw.addEventListener("input", () => { if (!kw.isComposing) { clearTimeout(timer); timer = setTimeout(apply, 300); } });
   const rf = body.querySelector("#resetFilter"); if (rf) rf.addEventListener("click", () => app.clearFilters());
+  /* 每月复盘：整行点开就是编辑那一篇，× 单独删除（带撤销），底部按钮新写一篇 */
+  body.querySelectorAll("[data-redit]").forEach(el => el.addEventListener("click", e => {
+    if (e.target.closest("[data-rdel]")) return;
+    openReviewSheet(app, el.dataset.redit);
+  }));
+  body.querySelectorAll("[data-rdel]").forEach(b => b.addEventListener("click", () => removeReviewWithUndo(app, b.dataset.rdel)));
+  body.querySelector("[data-rnew]").addEventListener("click", () => openReviewSheet(app, null));
   body.querySelector("#openFilter").addEventListener("click", () => app.openFilters());
   body.querySelector("#theme").addEventListener("click", () => { st.theme = st.theme === "e" ? "i" : "e"; app.commit(); });
   bindDesktopLink(body);

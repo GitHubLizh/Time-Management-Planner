@@ -23,7 +23,9 @@
 **任务与目标**
 
 - 任务字段：标题、分类、优先级（P1 重要紧急 → P4 不紧急不重要）、状态（未开始 / 进行中 / 已完成）、起止时间、计划/实际耗时、进度、关联目标、备注。
-- 目标分周 / 月 / 年三级，另有"每月复盘"记录；任务通过 `goalId` 挂到目标下。桌面端靠拖拽关联或解除，移动端在任务编辑面板里选"关联目标"——两条路最终都走 `core/mutations.applyDrop` / `saveTask`，落点语义只有一份实现。
+- 目标分周 / 月 / 年三级；任务通过 `goalId` 挂到目标下。桌面端靠拖拽关联或解除，移动端在任务编辑面板里选"关联目标"——两条路最终都走 `core/mutations.applyDrop` / `saveTask`，落点语义只有一份实现。
+- **每月复盘**（`state.goals.reviews`）：一月一篇，条目形如 `{m:"2026-09", text}`，**业务键就是月份本身，没有 id**。写入在 `core/mutations.saveReview`（同月覆盖、写完按月份排序）与 `deleteReview`（返回 `{m,text,undo}`，撤销回到原下标而不是追加末尾）。入口两处：桌面年视图那张卡（"写复盘"+ 每条的编辑/删除，弹窗 `#reviewModal`），移动"我的"页的"每月复盘"卡（整行点开编辑、`×` 删除带 6 秒撤销，面板经 `app.sheet()` 出口，平板上落进右栏）。
+  历史上这张卡只读不写（渲染着但全局没有任何写入路径），`normalize()` 于是也只 `Array.isArray` 一下就原样透传。开放入口的同时补了钳位：**只收 `m` 为非空字符串的条目，`text` 非字符串归空串，条目重建成只剩 `m`/`text` 两字段**——手改云端行或旧缓存塞进缺字段的东西时，页面不该渲染出 `undefined`。
 
 **重复规则**（`RECUR_RULES`）
 
@@ -198,6 +200,14 @@ npm run golden    # 渲染金样本：16 段 innerHTML 落盘 _golden.json（已
 
 `_mobile_frame.html` / `_mobile_probe.html` 是免登录渲染移动壳的 dev 探针（桩会话，不验证登录链路）。它能量的两件事是**几何**（字号、触控目标高度、横向溢出、一屏条目数——`getBoundingClientRect` 在隐藏页也照常工作）和**处理链**（`element.click()` 派发的是走完整监听器链的真实 click 事件）。它测不到的是**指针输入**：命中测试、遮挡、滚动位置、动画手感都不在其中，所以"探针里点通了"不等于真机点得中——那一步只能上真机，或等有可用 surface 的浏览器。
 
+`_desktop_boot.js` + 一份生成的 `_desktop_frame.html` 是桌面版的同类探针，区别在于它绕的是**登录**：副本由 `index.html` 生成（去掉移动分流 shim，把入口换成 `_desktop_boot.js`），后者用一份假 Supabase client 调 `window.bootstrapPlanner`——链式查询恒回空行、`upsert` 收下来当成功，于是走完整装载时序但不出网、不落真实存储。副本**不进仓库**（`.gitignore` 里挡掉，提交只会跟 `index.html` 漂移），要用时现生成：
+
+```bash
+sed -e '6,17d' -e 's|import("/src/main.js")|import("/_desktop_boot.js")|' index.html > _desktop_frame.html
+```
+
+删的是头部那段移动分流 shim（第 6–17 行），留着它，探针在窄视口下会被 `location.replace` 弹去 `/mobile.html`。
+
 `_bulk_test.js` 是批量选择与撤销的同类断言脚本，尚未挂进 npm scripts。
 
 ## 项目结构
@@ -216,6 +226,7 @@ supabase/migrations/            建表 + RLS 策略
 _recur_test.js / _core_seed.mjs 断言与 core 符号装载
 _golden_render.mjs              渲染金样本
 _mobile_frame.html              移动壳版式探针（免登录，桩会话）
+_desktop_boot.js                桌面探针的假 client 入口（副本 _desktop_frame.html 现生成、不提交）
 .env.example                    环境变量模板
 .手帐风时间管理台.qoder.site     Qoder Sites 发布清单（见下）
 ```

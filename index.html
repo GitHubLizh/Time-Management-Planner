@@ -439,6 +439,8 @@ table.data input[type=range]{width:90px;accent-color:var(--accent)}
 .year-month{border:1.5px solid var(--line);border-radius:8px;padding:10px;background:var(--card)}
 .year-month h4{font-size:.8rem;margin-bottom:6px;color:var(--accent)}
 .review-item{font-size:.78rem;border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:8px;background:var(--cream)}
+.review-item .rv-head{display:flex;align-items:center;gap:8px}
+.review-item .rv-head b{flex:1;min-width:0}
 .review-item b{font-size:.8rem}
 .review-item p{color:var(--muted);font-size:.72rem;margin-top:4px;line-height:1.6}
 
@@ -682,6 +684,23 @@ canvas.chart{width:100%;height:170px}
       <div style="display:flex;gap:10px">
         <button class="btn ghost" id="gCancel">取消</button>
         <button class="btn" id="gSave">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-mask" id="reviewModal">
+  <div class="modal" style="max-width:440px">
+    <h3 id="rmTitle">写每月复盘</h3>
+    <div class="form-row">
+      <div><label>月份（一月一篇，改同一月即覆盖）</label><input id="rvMonth" type="month"></div>
+    </div>
+    <div class="form-row full"><div><label>这个月做得怎样、下月怎么调</label><textarea id="rvText" rows="4" placeholder="例：交付比计划晚 4 天，卡在评审排期。下月把评审提前到周三。"></textarea></div></div>
+    <div class="modal-acts">
+      <button class="btn danger" id="rvDelete">删除</button>
+      <div style="display:flex;gap:10px">
+        <button class="btn ghost" id="rvCancel">取消</button>
+        <button class="btn" id="rvSave">保存</button>
       </div>
     </div>
   </div>

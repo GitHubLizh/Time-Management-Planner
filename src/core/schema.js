@@ -17,7 +17,12 @@ export function defaultState(){
 export function normalize(s){
   const g=s.goals||{};
   const up=arr=>(Array.isArray(arr)?arr:[]).map(x=>typeof x==="string"?{id:newGoalId(),title:x}:(x&&x.id?x:{id:newGoalId(),title:String(x??"")}));
-  s.goals={weekly:up(g.weekly),monthly:up(g.monthly),yearly:up(g.yearly),reviews:Array.isArray(g.reviews)?g.reviews:[]};
+  /* 复盘没有 id，业务键是月份：只收 {m:string, text:string}，其余整条丢掉。
+     以前 reviews 全局只读、写不进，脏数据进不来；入口开放后必须钳位——
+     外部（手改云端行 / 旧缓存）塞进缺字段的条目时，页面不该渲染出 undefined。 */
+  const rv=arr=>(Array.isArray(arr)?arr:[]).filter(x=>x&&typeof x.m==="string"&&x.m)
+    .map(x=>({m:x.m,text:typeof x.text==="string"?x.text:""}));
+  s.goals={weekly:up(g.weekly),monthly:up(g.monthly),yearly:up(g.yearly),reviews:rv(g.reviews)};
   s.tasks.forEach(t=>{
     if(typeof t.goalId!=="string")t.goalId="";
     if(typeof t.doneAt!=="string")t.doneAt="";

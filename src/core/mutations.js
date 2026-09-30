@@ -134,6 +134,24 @@ export function applyKanbanDrop(t,colKey,mode,changed){
   return {};
 }
 
+/* ---------- 每月复盘 ----------
+   业务键就是月份本身（一月一篇，形如 "2026-09"），不另设 id：桌面那张卡按数组顺序读，
+   写入时按月份排序，后写的复盘不会把已有条目的阅读顺序打乱。 */
+export function saveReview(m, text){
+  const list = state.goals.reviews;
+  const i = list.findIndex(r => r && r.m === m);
+  if (i >= 0) list[i] = { m, text }; else list.push({ m, text });
+  list.sort((a, b) => a.m < b.m ? -1 : a.m > b.m ? 1 : 0);
+  return { isNew: i < 0 };
+}
+export function deleteReview(m){
+  const i = state.goals.reviews.findIndex(r => r && r.m === m);
+  if (i < 0) return null;
+  const snap = JSON.parse(JSON.stringify(state.goals.reviews[i]));
+  state.goals.reviews.splice(i, 1);
+  return { m: snap.m, text: snap.text, undo(){ state.goals.reviews.splice(Math.min(i, state.goals.reviews.length), 0, snap); } };
+}
+
 /* ---------- 目标增删改 ---------- */
 export function saveGoal(id,title,level){
   if(id){

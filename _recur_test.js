@@ -505,6 +505,31 @@ F("taskById")("a1").goalId="g9"; // 撤销前已被手动改走
 F("deleteGoal")("g1").undo();
 eq("撤销不覆盖手动改走的关联",F("taskById")("a1").goalId,"g9");
 
+/* ================= 每月复盘（业务键=月份，一月一篇） =================
+   这一层以前只读不写，"覆盖 / 排序 / 撤销位置 / 脏数据钳位"都是开放入口后才成立的行为 */
+console.log("\n== 每月复盘写入 ==");
+resetTasks();
+F("saveReview")("2026-09", "交付晚 4 天");
+eq("新写一篇", F("state").goals.reviews, [{ m: "2026-09", text: "交付晚 4 天" }]);
+F("saveReview")("2026-07", "七月小结");
+F("saveReview")("2026-08", "八月小结");
+eq("补写过去的月份按月份排，不是追加到末尾", F("state").goals.reviews.map(r => r.m), ["2026-07", "2026-08", "2026-09"]);
+F("saveReview")("2026-09", "改成晚 3 天");
+eq("同月覆盖不留两份", F("state").goals.reviews.length, 3);
+eq("覆盖只改这一篇", F("state").goals.reviews.find(r => r.m === "2026-09").text, "改成晚 3 天");
+const rdel = F("deleteReview")("2026-08");
+eq("删除返回该月与正文", [rdel.m, rdel.text], ["2026-08", "八月小结"]);
+eq("删后剩两篇", F("state").goals.reviews.map(r => r.m), ["2026-07", "2026-09"]);
+rdel.undo();
+eq("撤销回到原位而不是追加末尾", F("state").goals.reviews.map(r => r.m), ["2026-07", "2026-08", "2026-09"]);
+eq("删不存在的月份返回 null", F("deleteReview")("2030-01"), null);
+const rbad = F("normalize")({ tasks: [], goals: { reviews: [
+  { m: "2026-09", text: "正常" }, { m: "2026-10" }, { m: "2026-11", text: 5 },
+  { m: "", text: "空月份" }, "字符串", null, { m: 20261101, text: "数字月份" }] } });
+eq("只收带非空字符串月份的条目", rbad.goals.reviews.map(r => r.m), ["2026-09", "2026-10", "2026-11"]);
+eq("text 缺失或非字符串都归空串", rbad.goals.reviews.map(r => r.text), ["正常", "", ""]);
+eq("条目被重建成只有 m/text 两个字段", Object.keys(rbad.goals.reviews[0]), ["m", "text"]);
+
 /* ================= 同步决策规则（core/sync） =================
    小程序/App 要复刻的就是这几条时间戳口径，所以把它们从壳里抽出来单独钉住 */
 console.log("\n== 同步决策规则 ==");
