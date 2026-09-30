@@ -143,7 +143,7 @@ function/index.ts 同域反向代理（Edge 函数）
 - 网关对**写操作要求同源**。`curl` 不带 `Origin` 时 POST 会被挡（403），所以登录 POST 这类路径没法用 curl 验证，必须浏览器实测。
 - 函数用 `redirect:"manual"` 不自动跟随上游重定向，因此 `location` 必须在响应头回传白名单里。邮箱链接登录的验证页（`/auth/v1/verify`）正是靠上游 303 的 `Location` 把浏览器送回站点页，丢了它手机点邮件链接会停在空白/错误页。
 
-**邮箱链接（Magic Link）必须改 Supabase 邮件模板**：Supabase 默认模板里的 `{{ .ConfirmationURL }}` 永远指向 `*.supabase.co`，手机网络打不开。要在 Supabase 后台 Authentication → Email Templates → Magic Link 把链接换成走本站代理的同形 URL：
+**邮箱链接（Magic Link）必须改 Supabase 邮件模板**（2026-09-30 已在后台改好并保存）：Supabase 默认模板里的 `{{ .ConfirmationURL }}` 永远指向 `*.supabase.co`，手机网络打不开。要在 Supabase 后台 Authentication → Email Templates → Magic Link 把链接换成走本站代理的同形 URL：
 
 ```
 https://journal-planner-rfjj5zmttgr.qoder.zone/functions/v1/app/auth/v1/verify?token={{ .TokenHash }}&type=magiclink&redirect_to={{ .RedirectTo }}
