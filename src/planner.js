@@ -7,7 +7,7 @@ import { setPinyinImpl, filterSummary } from "./core/filters.js";
 import { recurText, occurrencesBetween, occDone, toggleOcc, recurDoneIn, recurStreak, statsPool } from "./core/recur.js";
 import { state, setState, defaultState, mk, taskById } from "./core/schema.js";
 import { filteredTasks, tasksOn, splitId, isOverdue, overdueDays, overdueList, syncDoneAt, isLateDone, lateDays, lateList, statsOf, hasActiveFilter,
-  SLOT_TIMES, scheduleGrid, dayGroups, weekDaysOf, miniCalGrid, weekColumns, dailyCounts, monthTasksOf, monthGrid, progressWeeks, monthSpanFilter, ganttCells, yearSplit, yearMonthDays, monthSlice, monthlyRates, kanbanSplit } from "./core/selectors.js";
+  scheduleGrid, dayGroups, weekDaysOf, miniCalGrid, weekColumns, dailyCounts, monthTasksOf, monthGrid, progressWeeks, monthSpanFilter, ganttCells, yearSplit, yearMonthDays, monthSlice, monthlyRates, kanbanSplit } from "./core/selectors.js";
 import { goalsOf, goalLevel, goalById, goalTasks, goalVisibleThisWeek, taskGoal, goalProgress } from "./core/goals.js";
 import { authErrorMessage } from "./core/auth.js";
 import { toggleTaskDone, applyTaskDraftRules, duplicateTask, deleteTask as deleteTaskData, bulkToggleDone, bulkDelete, saveTask, saveGoal, deleteGoal as deleteGoalData, saveReview, deleteReview as deleteReviewData, moveGoal, applyDrop, applyKanbanDrop } from "./core/mutations.js";
@@ -317,8 +317,6 @@ function recurStatHTML(t,ds){
     +` · 已打卡 ${p.done} 次 · 连续 ${st} 次 = 从今天或上一个发生日往前数，连续留有打卡记录的次数`;
   return `<div class="recur-stat" title="${esc(tip)}">本月 <b>${p.done}/${p.total}</b> 次${st?` · <span class="streak">连续 ${st} 次</span>`:""}</div>`;
 }
-function quadrantOf(p){return p;}
-
 /* ================= 顶部：主题 / 导航 / 筛选 ================= */
 function applyTheme(){
   document.body.className="theme-"+state.theme;
@@ -554,36 +552,9 @@ $("#bulkExit").addEventListener("click",()=>exitBulk());
 $("#bulkAll").addEventListener("change",e=>bulkSelectAll(e.target.checked));
 $("#bulkDone").addEventListener("click",bulkApplyDone);
 $("#bulkDel").addEventListener("click",bulkApplyDelete);
-function statsPanelHTML(list){
-  const s=statsOf(list);
-  const typeBars=TYPES.filter(t=>s.types[t]).map(t=>{
-    const pct=Math.round(s.types[t]/s.total*100);
-    return `<div class="hbar"><span class="lbl">${t}</span><span class="bar"><i style="width:${pct}%;background:${TYPE_COLORS[TYPES.indexOf(t)]}"></i></span><span class="val">${s.types[t]}</span></div>`;
-  }).join("");
-  return `<div class="grid4" style="margin-bottom:12px">
-    <div class="stat-box"><div class="stat-num">${s.total}</div><div class="stat-label">总任务</div></div>
-    <div class="stat-box"><div class="stat-num" style="color:#3f8f5f">${s.done}</div><div class="stat-label">已完成</div></div>
-    <div class="stat-box"><div class="stat-num">${s.doing}</div><div class="stat-label">进行中</div></div>
-    <div class="stat-box"><div class="stat-num" style="color:var(--muted)">${s.todo}</div><div class="stat-label">未开始</div></div>
-  </div>
-  <div class="grid2">
-    <div class="card"><h3>${I.target}四象限分布</h3>
-      <div class="quad-legend">
-        <div class="q1"><b>P1 重要紧急</b>${s.q[1]} 项</div>
-        <div class="q2"><b>P2 重要不紧急</b>${s.q[2]} 项</div>
-        <div class="q3"><b>P3 紧急不重要</b>${s.q[3]} 项</div>
-        <div class="q4"><b>P4 不紧急不重要</b>${s.q[4]} 项</div>
-      </div>
-      <div class="deco-line"></div>
-      <div class="hbar"><span class="lbl">完成率</span><span class="bar"><i style="width:${s.rate}%"></i></span><span class="val">${s.rate}%</span></div>
-    </div>
-    <div class="card"><h3>${I.chart}任务类型分布</h3>${typeBars||'<div class="empty-tip">暂无数据</div>'}</div>
-  </div>`;
-}
 
 /* ================= 课表视图 ================= */
 /* SLOT_TIMES 与分格规则已下沉到 core/selectors.js，课表网格由 scheduleGrid 给出 */
-function slotStart(s){return SLOT_TIMES[s][0];}
 function renderSchedule(){
   const pool=filteredTasks();
   const courses=state.tasks.filter(t=>t.course); // 课表始终显示完整课表
