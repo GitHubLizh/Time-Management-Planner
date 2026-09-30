@@ -188,7 +188,7 @@ npm run dev
 ## 测试
 
 ```bash
-npm test          # 264 条断言：node _recur_test.js src/planner.js
+npm test          # 309 条断言：node _recur_test.js src/planner.js
 npm run golden    # 渲染金样本：16 段 innerHTML 落盘 _golden.json（已 gitignore）
 ```
 
@@ -208,7 +208,7 @@ sed -e '6,17d' -e 's|import("/src/main.js")|import("/_desktop_boot.js")|' index.
 
 删的是头部那段移动分流 shim（第 6–17 行），留着它，探针在窄视口下会被 `location.replace` 弹去 `/mobile.html`。
 
-`_bulk_test.js` 是批量选择与撤销的同类断言脚本，尚未挂进 npm scripts。
+桌面批量选择这条壳路径的断言（34 条）原先单独立在 `_bulk_test.js` 里，2026-09-30 已并入 `_recur_test.js`：那份脚本用的是自己的装载层，只重写了 `pinyin-pro` 一条 import，而 `planner.js` 现在 import 了 13 个模块，`vm` 里加载必炸、又被它自己的 `try/catch` 吞成一行提示，于是所有断言在 undefined 上整片失效——它挂在 npm scripts 之外太久，实际早就不是可用测试。并入后走 `_core_seed.mjs` 那套 seed（剥全部 import + `defineProperties` 挂 live getter），顺带去掉两份脚本各写一遍的 id 对账。
 
 ## 项目结构
 
