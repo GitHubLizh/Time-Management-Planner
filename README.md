@@ -141,6 +141,15 @@ function/index.ts 同域反向代理（Edge 函数）
 
 - 函数**收到**的路径首段是物理名 `app-<部署号>`，既没有 `/functions/v1` 前缀、名字又每次部署都变。只能"剥掉首段"取子路径（`function/index.ts:34`），不可按 `app` 字面量或三段前缀匹配。
 - 网关对**写操作要求同源**。`curl` 不带 `Origin` 时 POST 会被挡（403），所以登录 POST 这类路径没法用 curl 验证，必须浏览器实测。
+- 函数用 `redirect:"manual"` 不自动跟随上游重定向，因此 `location` 必须在响应头回传白名单里。邮箱链接登录的验证页（`/auth/v1/verify`）正是靠上游 303 的 `Location` 把浏览器送回站点页，丢了它手机点邮件链接会停在空白/错误页。
+
+**邮箱链接（Magic Link）必须改 Supabase 邮件模板**：Supabase 默认模板里的 `{{ .ConfirmationURL }}` 永远指向 `*.supabase.co`，手机网络打不开。要在 Supabase 后台 Authentication → Email Templates → Magic Link 把链接换成走本站代理的同形 URL：
+
+```
+https://journal-planner-rfjj5zmttgr.qoder.zone/functions/v1/app/auth/v1/verify?token={{ .TokenHash }}&type=magiclink&redirect_to={{ .RedirectTo }}
+```
+
+注意 `token` 要用 `{{ .TokenHash }}`（URL 里的验证令牌，= 带前缀的哈希），不是 `{{ .Token }}`（那是 6 位数字验证码）。另外 PKCE 的 `code_verifier` 存在发起登录那个浏览器的 localStorage 里，邮件链接必须在**同一个浏览器**打开才能完成交换（微信内置浏览器收到链接时，先点右上角"用系统浏览器打开"，且登录页也要在该系统浏览器里发起）。
 
 **排查**：任何 URL 加 `?direct=1` 强制直连 Supabase（偏好记在 `sessionStorage`），可立刻区分"是代理的问题还是别的问题"。
 
