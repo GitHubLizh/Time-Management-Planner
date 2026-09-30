@@ -718,7 +718,7 @@ function renderDay(){
     renderDay();
   }));
   const todayBtn=v.querySelector("[data-cal-today]");
-  if(todayBtn)todayBtn.addEventListener("click",()=>{exitBulk();calNav=null;state.selDate=todayStr;save();renderAll();});
+  if(todayBtn)todayBtn.addEventListener("click",()=>{exitBulk();calNav=null;state.selDate=fmt(TODAY);save();renderAll();});
   const ySel=v.querySelector("[data-cal-year]"),mSel=v.querySelector("[data-cal-month]");
   [ySel,mSel].forEach(sel=>sel.addEventListener("change",()=>{
     calNav={y:+ySel.value,m:+mSel.value,anchor:state.selDate};
