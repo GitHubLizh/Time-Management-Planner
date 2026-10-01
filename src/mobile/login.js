@@ -24,6 +24,9 @@ export function renderLogin(root, session, opts) {
   let guardEmail = ""; // 触发引导的邮箱，输入框清空后仍按它判定
   let ticker = null;
   let wasLocked = false;
+  let linkTimer = null;     // 邮箱链接的 60 秒重发冷却
+  let linkCooling = false;  // 冷却期间按钮归倒计时管，renderGuard 不碰它的 disabled
+  let linkCoolBtns = [];
   /* 与桌面同域，所以两端共用这一份计数；无 localStorage 时传 null，守卫按"没锁"降级 */
   const fail = createPasswordFailGuard(typeof localStorage === "undefined" ? null : localStorage);
   const recovered = !!(opts && opts.recovery);
@@ -42,8 +45,8 @@ export function renderLogin(root, session, opts) {
     <div class="m-fallback" id="fb" hidden>
       <div class="t" id="fbT"></div>
       <button class="m-btn" id="fbReset" type="button">发送重置密码邮件</button>
-      <button class="m-btn ghost" id="fbLink" type="button">改用邮箱链接登录</button>
-      <div class="hint">重置邮件里的链接要在同一浏览器打开才能完成验证；也可以用下方的 Google / GitHub 登录。</div>
+      <button class="m-btn ghost" id="fbLink" type="button">发送邮箱登录链接</button>
+      <div class="hint">点一下就直接发信，到邮箱里点邮件中的链接即可登录（同一浏览器打开才能完成验证）。也可以直接用下方的 Google / GitHub 登录。</div>
     </div>
     <div class="m-split">或用第三方账号</div>
     <div class="m-oauth">
@@ -68,7 +71,7 @@ export function renderLogin(root, session, opts) {
     $("#fb").hidden = !show;
     if (show) $("#fbT").textContent = fbTitle(st);
     // 只锁密码这一条路：邮箱链接、重置邮件、第三方此刻必须还能点
-    if (!busy) $("#go").disabled = !!(show && st.locked && mode === "login");
+    if (!busy && !linkCooling) $("#go").disabled = !!(show && st.locked && mode === "login");
     if (st.locked) { if (!ticker) ticker = setInterval(renderGuard, 1000); } // 每秒重读，到点自动放开
     else {
       if (ticker) { clearInterval(ticker); ticker = null; }
@@ -77,7 +80,48 @@ export function renderLogin(root, session, opts) {
     wasLocked = !!st.locked;
   }
 
+  /* 邮箱链接的重发冷却：Supabase 对同一地址有发信频率限制，连点只会换回一次 rate limit。 */
+  function startLinkCooldown(btns) {
+    linkCoolBtns = btns.filter(Boolean);
+    linkCooling = true;
+    let left = 60;
+    const paint = () => linkCoolBtns.forEach(b => { b.textContent = `重新发送(${left})`; b.disabled = true; });
+    paint();
+    linkTimer = setInterval(() => {
+      if (currentInstance !== instance) { clearInterval(linkTimer); linkTimer = null; return; } // 页面已被重画
+      left--;
+      if (left <= 0) { stopLinkCooldown(); return; }
+      paint();
+    }, 1000);
+  }
+  function stopLinkCooldown() {
+    if (linkTimer) { clearInterval(linkTimer); linkTimer = null; }
+    linkCoolBtns.forEach(b => { if (b.dataset.coolLabel) b.textContent = b.dataset.coolLabel; b.disabled = false; });
+    linkCoolBtns = [];
+    if (!linkCooling) return;
+    linkCooling = false;
+    renderGuard(); // 密码那边的锁定状态该由守卫重新决定
+  }
+  async function sendLoginLink(btns) {
+    if (linkCooling) return;
+    const email = $("#e").value.trim();
+    if (!email) { say("请先填写邮箱，再发送登录链接。"); return; }
+    const list = (btns || [$("#go")]).filter(Boolean);
+    list.forEach(b => { if (!b.dataset.coolLabel) b.dataset.coolLabel = b.textContent; b.disabled = true; });
+    busy = true; say("正在发送登录链接…");
+    try {
+      const { error } = await session.auth.otp(email);
+      if (error) { list.forEach(b => { b.disabled = false; }); say(authErrorMessage(error)); return; }
+      say("登录链接已发到 " + email + "，请到邮箱点击邮件里的链接完成登录（可能在垃圾邮件里）。");
+      startLinkCooldown(list);
+    } catch (err) {
+      list.forEach(b => { b.disabled = false; });
+      say(authErrorMessage(err) || "发送失败，请稍后重试。");
+    } finally { busy = false; }
+  }
+
   function setMode(m) {
+    stopLinkCooldown(); // 先收掉重发倒计时，否则它会把下面的文案又改回"重新发送(N)"
     mode = m;
     const isLink = m === "link";
     const isReset = m === "reset";
@@ -100,7 +144,9 @@ export function renderLogin(root, session, opts) {
   }
   $("#toSignup").addEventListener("click", () => setMode("signup"));
   $("#toLink").addEventListener("click", () => setMode("link"));
-  $("#fbLink").addEventListener("click", () => setMode("link"));
+  /* 面板里这颗一步到位：切到邮箱链接模式并当场发信。原先只切模式，变化全在面板上方，
+     面板里一个字没动，用户点了以为"没反应"（2026-10-01 实测反馈）。 */
+  $("#fbLink").addEventListener("click", () => { setMode("link"); sendLoginLink([$("#go"), $("#fbLink")]); });
   root.querySelectorAll(".m-alt button").forEach(b => b.addEventListener("click", () => {
     root.querySelectorAll(".m-alt button").forEach(x => x.style.borderColor = "");
     if (b !== $("#go")) b.style.borderColor = "var(--accent)";
@@ -138,11 +184,12 @@ export function renderLogin(root, session, opts) {
       const st0 = fail.state(email);
       if (st0.locked) { // 冷却内不出网：省一次必错的请求，也别去撞 Supabase 自己的频率限制
         // 刻意不写剩余秒数：这行字会一直留在提示位上，而秒数在面板标题里每秒刷新
-        say("密码登录暂停中，可先发重置密码邮件或改用邮箱链接登录。");
+        say("密码登录暂停中，可发重置密码邮件或发邮箱登录链接。");
         renderGuard();
         return;
       }
     }
+    if (mode === "link") { await sendLoginLink([btn]); return; } // 发信与冷却都在 sendLoginLink 里，面板那颗按钮走同一条路
     busy = true; btn.disabled = true; say("");
     try {
       if (mode === "reset") {
@@ -154,10 +201,7 @@ export function renderLogin(root, session, opts) {
         if (opts && opts.onRecovered) await opts.onRecovered(); // 交回 boot：装载状态、进主界面
         return;
       }
-      if (mode === "link") {
-        const { error } = await session.auth.otp(email);
-        say(error ? authErrorMessage(error) : "登录链接已发送，请查收邮箱。");
-      } else {
+      if (mode === "signup" || mode === "login") {
         const r = mode === "signup" ? await session.auth.signUp(email, pw) : await session.auth.signIn(email, pw);
         if (r.error) {
           if (mode === "login" && isPasswordFailure(r.error)) {

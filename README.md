@@ -197,7 +197,11 @@ npm run dev
 
 登录方式：邮箱魔法链接（OTP）、邮箱密码，以及 Google / GitHub OAuth。OAuth 需要在 Supabase 后台先配好对应 Provider。
 
-**同一邮箱连续输错密码 5 次**会停下密码这条路，把另外三条出路摆到眼前：登录卡片里出现一块虚线引导区，含"发送重置密码邮件"（`resetPasswordForEmail`，带 60 秒重发冷却）与"改用邮箱链接登录"，并指向已有的 Google / GitHub 按钮；同时密码提交禁用 60 秒，面板标题逐秒倒数，到点自动放开、引导区留着继续指路。口径与分工：
+**同一邮箱连续输错密码 5 次**会停下密码这条路，把另外三条出路摆到眼前：登录卡片里出现一块虚线引导区，含"发送重置密码邮件"与"发送邮箱登录链接"两颗按钮（都点一下就当场发信，各自带 60 秒重发冷却），并指向已有的 Google / GitHub 登录；同时密码提交禁用 60 秒，面板标题逐秒倒数，到点自动放开、引导区留着继续指路。
+
+两颗按钮都**只在人点的时候发信**，第 5 次失败本身不触发发信 —— 计数键就是被输错的那个邮箱，自动发信等于让别人拿你的地址乱试密码就能往你邮箱里刷信。"发送邮箱登录链接"这颗是**切模式 + 发信一步到位**：早先它只切模式（标题、密码行、提交按钮都在面板上方变化），面板里一个字没动，用户点了以为没反应（2026-10-01 实测反馈），所以现在冷却倒计时同时挂在它和提交按钮上。
+
+口径与分工：
 
 - 判定全在 `src/core/auth.js`（`createPasswordFailGuard` / `isPasswordFailure`，纯规则 + 由壳注入 storage），桌面 `src/planner.js` 与移动 `src/mobile/login.js` 只管读写与展示，两端不会各写一套。
 - 只统计"凭证不对"（`invalid_credentials`）。网络失败、邮箱未确认、发信过频都不计入 —— 否则断网点重试会被当成猜密码，锁错人。
@@ -239,7 +243,7 @@ sed -e '6,17d' -e 's|import("/src/main.js")|import("/_desktop_boot.js")|' index.
 
 加 `?probe=login` 时同一份假 client 改走**登录链路**：`getSession` 先回空（停在登录页）、`signInWithPassword` 默认必回 `invalid_credentials`、`resetPasswordForEmail` / `updateUser` 回成功，并把 `onAuthStateChange` 的回调留在 `window.__probeAuth` 上，于是连错计数、60 秒冷却、面板指路、`PASSWORD_RECOVERY` 进"设置新密码"都能在浏览器里跑真实监听器链；冷却不必干等 60 秒，把 `localStorage` 里的 `unlockAt` 改到过去即可。移动壳对应的是 `_mobile_login_probe.html` + `_mobile_login_probe.js`（桩会话直接驱动 `renderLogin`）与 `_mobile_login_frame.html`（390px iframe，用来量登录页在窄视口下的几何 —— 内置浏览器没有可见 surface，顶层 `innerWidth` 恒为 0，量不到）。这三份是验证工具，不参与构建。
 
-2026-10-01 用这套探针实测过的链路（两端各自跑过）：连错 5 次第 5 次弹面板并禁用提交、第 6 次不出网、切邮箱链接后同一提交按钮放开、发重置邮件后按钮进入 60 秒重发冷却、改 `unlockAt` 到过去后计时器自己放开并抹掉"暂停中"那行、登录成功清零计数、`PASSWORD_RECOVERY` 停在"设置新密码"且保存后进主界面。移动壳 390px 下 `overflowX=0`、面板两个按钮高 48px。**没测到的**：真机指针命中与观感、真发一封重置邮件（假 client 不碰 Supabase），以及 Reset password 模板未改前手机点邮件链接的实际表现。
+2026-10-01 用这套探针实测过的链路（两端各自跑过）：连错 5 次第 5 次弹面板并禁用提交、第 6 次不出网、点面板"发送邮箱登录链接"后当场发信且提交按钮与它一起进入 60 秒重发冷却（冷却内再点不出网、切回密码模式时倒计时收掉而密码锁定重新接管）、发重置邮件后按钮进入 60 秒重发冷却、改 `unlockAt` 到过去后计时器自己放开并抹掉"暂停中"那行、登录成功清零计数、`PASSWORD_RECOVERY` 停在"设置新密码"且保存后进主界面。移动壳 390px 下 `overflowX=0`、面板两个按钮高 48px。**没测到的**：真机指针命中与观感、真发一封重置邮件（假 client 不碰 Supabase），以及 Reset password 模板未改前手机点邮件链接的实际表现。
 
 桌面批量选择这条壳路径的断言（34 条）原先单独立在 `_bulk_test.js` 里，2026-09-30 已并入 `_recur_test.js`：那份脚本用的是自己的装载层，只重写了 `pinyin-pro` 一条 import，而 `planner.js` 现在 import 了 13 个模块，`vm` 里加载必炸、又被它自己的 `try/catch` 吞成一行提示，于是所有断言在 undefined 上整片失效——它挂在 npm scripts 之外太久，实际早就不是可用测试。并入后走 `_core_seed.mjs` 那套 seed（剥全部 import + `defineProperties` 挂 live getter），顺带去掉两份脚本各写一遍的 id 对账。
 

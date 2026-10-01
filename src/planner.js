@@ -151,6 +151,8 @@ let plannerReady=false;      // initializePlanner 只跑一次（它挂定时器
 let guardEmail="";           // 最近一次触发"连错引导"的邮箱，输入框清空后仍按它判定
 let guardTicker=null;
 let guardWasLocked=false;
+let linkTimer=null;      // 邮箱链接的 60 秒重发冷却在跑
+let linkCooling=false;   // 冷却期间按钮归倒计时管，renderGuard 不去碰它的 disabled
 /* 连错计数落在 localStorage，键按邮箱归一（见 core/auth）。桌面 index.html 与移动 mobile.html
    同域，所以两端共用同一份计数；无 localStorage 的环境（小程序/Worker）传 null，守卫内部一律
    按"没锁"降级，绝不把登录挡死。 */
@@ -172,7 +174,7 @@ function renderGuard(){
   panel.hidden=!show;
   if(show)$("#authFallbackTitle").textContent=fallbackTitleText(st);
   // 只锁密码这一条路：邮箱链接与第三方登录此刻必须还能点
-  if(!authBusy)$("#authSubmit").disabled=show&&st.locked&&authMode==="login";
+  if(!authBusy&&!linkCooling)$("#authSubmit").disabled=show&&st.locked&&authMode==="login";
   if(st.locked){if(!guardTicker)guardTicker=setInterval(renderGuard,1000);} // 每秒重读，到点自动放开
   else{
     if(guardTicker){clearInterval(guardTicker);guardTicker=null;}
@@ -182,6 +184,7 @@ function renderGuard(){
   guardWasLocked=!!st.locked;
 }
 function setAuthMode(mode){
+  stopLinkCooldown();  // 先收掉邮箱链接的重发倒计时，否则它会把下面的文案又改回"重新发送(N)"
   authMode=mode;
   const isLogin=mode==="login";
   const isLink=mode==="link";
@@ -233,6 +236,39 @@ async function enterPlanner(){
   if(currentUser)showPlanner(currentUser);
   if(dirty)await saveRemote();
 }
+/* 邮箱链接的重发冷却：Supabase 对同一地址有发信频率限制，连点只会换回一次 rate limit。
+   冷却期间按钮文案与 disabled 都归这里管（linkCooling 让 renderGuard 别插手）。 */
+let linkCoolBtns=[];
+function startLinkCooldown(btns){
+  linkCoolBtns=btns.filter(Boolean);
+  linkCooling=true;
+  let left=60;
+  const paint=()=>linkCoolBtns.forEach(b=>{b.textContent=`重新发送(${left})`;b.disabled=true;});
+  paint();
+  linkTimer=setInterval(()=>{left--;if(left<=0){stopLinkCooldown();return;}paint();},1000);
+}
+function stopLinkCooldown(){
+  if(linkTimer){clearInterval(linkTimer);linkTimer=null;}
+  linkCoolBtns.forEach(b=>{if(b.dataset.coolLabel)b.textContent=b.dataset.coolLabel;b.disabled=false;});
+  linkCoolBtns=[];
+  if(!linkCooling)return;
+  linkCooling=false;
+  renderGuard(); // 密码那边的锁定状态该由守卫重新决定
+}
+async function sendLoginLink(btns){
+  if(!supabaseClient||linkCooling)return;
+  const email=$("#authEmail").value.trim();
+  if(!email){setAuthMessage("请先填写邮箱，再发送登录链接。");return;}
+  const list=(btns||[$("#authSubmit")]).filter(Boolean);
+  list.forEach(b=>{if(!b.dataset.coolLabel)b.dataset.coolLabel=b.textContent;b.disabled=true;});
+  authBusy=true;
+  setAuthMessage("正在发送登录链接…");
+  const {error}=await supabaseClient.auth.signInWithOtp({email,options:{emailRedirectTo:window.location.origin}});
+  authBusy=false;
+  if(error){list.forEach(b=>{b.disabled=false;});setAuthMessage(authErrorMessage(error));return;}
+  setAuthMessage("登录链接已发到 "+email+"，请到邮箱点击邮件里的链接完成登录（可能在垃圾邮件里）。");
+  startLinkCooldown(list);
+}
 async function sendResetEmail(btn){
   const email=$("#authEmail").value.trim()||guardEmail;
   if(!supabaseClient||!email)return;
@@ -271,7 +307,12 @@ function bindAuthEvents(){
   $("#authMode").addEventListener("click",()=>setAuthMode(authMode==="login"?"signup":"login"));
   $("#authOtp").addEventListener("click",()=>setAuthMode("link"));
   const fallbackLink=$("#authFallbackLink");
-  if(fallbackLink)fallbackLink.addEventListener("click",()=>setAuthMode("link"));
+  if(fallbackLink)fallbackLink.addEventListener("click",()=>{
+    /* 一步到位：切到邮箱链接模式并当场把登录链接发出去。原先只切模式，变化全在面板上方，
+       面板里一个字没动，用户点了以为"没反应"（2026-10-01 实测反馈）。 */
+    setAuthMode("link");
+    sendLoginLink([$("#authSubmit"),fallbackLink]);
+  });
   const resetBtn=$("#authResetPwd");
   if(resetBtn)resetBtn.addEventListener("click",()=>sendResetEmail(resetBtn));
   // 换邮箱就重新判定：锁定是"这个账号"在冷却，不该牵连另一个账号，也不该被清空输入框绕开
@@ -281,26 +322,11 @@ function bindAuthEvents(){
     const email=$("#authEmail").value.trim();
     if(!supabaseClient)return;
     if(authMode==="reset"){await saveNewPassword();return;}
-    if(authMode==="link"){
-      $("#authSubmit").disabled=true;
-      setAuthMessage("正在发送登录链接…");
-      const {error}=await supabaseClient.auth.signInWithOtp({email,options:{emailRedirectTo:window.location.origin}});
-      if(error){$("#authSubmit").disabled=false;setAuthMessage(authErrorMessage(error));return;}
-      setAuthMessage("登录链接已发送，请到邮箱点击邮件中的链接完成登录（可能在垃圾邮件里）。");
-      // 发送冷却：Supabase 对同一邮箱有发信频率限制，连点会触发 rate limit
-      let left=60;
-      $("#authSubmit").textContent=`重新发送(${left})`;
-      const timer=setInterval(()=>{
-        left--;
-        if(left<=0||authMode!=="link"){clearInterval(timer);if(authMode==="link"){$("#authSubmit").textContent="发送登录链接";$("#authSubmit").disabled=false;}return;}
-        $("#authSubmit").textContent=`重新发送(${left})`;
-      },1000);
-      return;
-    }
+    if(authMode==="link"){await sendLoginLink([$("#authSubmit")]);return;}
     const st0=passwordFail.state(email);
     if(authMode==="login"&&st0.locked){ // 冷却内不出网：省一次必错的请求，也别去撞 Supabase 自己的频率限制
       // 这里刻意不写剩余秒数：这行字会一直留在错误行上，而秒数在面板标题里每秒刷新
-      setAuthMessage("密码登录暂停中，可先发重置密码邮件或改用邮箱链接登录。");
+      setAuthMessage("密码登录暂停中，可发重置密码邮件或发邮箱登录链接。");
       renderGuard();
       return;
     }
