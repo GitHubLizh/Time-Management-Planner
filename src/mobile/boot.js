@@ -30,10 +30,13 @@ if (!url || !anonKey) {
     const client = createClient(base, anonKey);
     const session = createSession(client, { url: base, anonKey });
     let app = null;
+    let recoveryPending = false; // 收到 PASSWORD_RECOVERY：新密码没落定前不挂载主界面
+    let pending = null;          // 已完成 activate、还没挂载的那份结果
 
-    async function enter(user) {
-      const r = await session.activate(user);
-      if (r.error) { renderLogin(root, session, { message: r.error }); return; }
+    async function mount() {
+      if (recoveryPending) { showRecovery(); return; } // 事件与 activate 的先后不确定，这里再收一次口
+      const r = pending;
+      if (!r) return;
       if (!app) {
         app = createApp(root, session, r.state || undefined);
         app.session = session;               // 视图模块经 app 拿会话（退出登录要 flush）
@@ -44,10 +47,31 @@ if (!url || !anonKey) {
       }
       if (r.needPush) await session.push(app.state); // 云端还没有这一行：把本机缓存或空白迁移上去
     }
+    /* 点重置邮件链接回来时 auth-js 发的是 PASSWORD_RECOVERY（不是 SIGNED_IN）：
+       会话此刻已有效但旧密码依旧是错的，先停在"设置新密码"，设完再挂载。 */
+    function showRecovery() {
+      renderLogin(root, session, {
+        recovery: true,
+        onRecovered: async () => { recoveryPending = false; pending = pending || await session.activate(session.user); await mount(); },
+      });
+    }
 
-    client.auth.onAuthStateChange((_e, s) => {
+    async function enter(user) {
+      const r = await session.activate(user);
+      if (r.error) { renderLogin(root, session, { message: r.error }); return; }
+      pending = r;
+      await mount();
+    }
+
+    client.auth.onAuthStateChange((event, s) => {
+      if (event === "PASSWORD_RECOVERY") {
+        recoveryPending = true;
+        if (pending) showRecovery();
+        else if (s && s.user) enter(s.user);
+        return;
+      }
       if (s && s.user) enter(s.user);
-      else if (!s) { app = null; renderLogin(root, session); }
+      else if (!s) { app = null; pending = null; recoveryPending = false; renderLogin(root, session); }
     });
 
     const { data } = await client.auth.getSession();

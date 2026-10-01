@@ -567,6 +567,52 @@ eq("未开放注册",F("authErrorMessage")({message:"Signups not allowed for thi
 eq("网络失败（Failed to fetch）",F("authErrorMessage")({message:"Failed to fetch"}),"网络连接失败，请检查网络后重试。");
 eq("网络失败（timeout）",F("authErrorMessage")({message:"request timeout"}),"网络连接失败，请检查网络后重试。");
 
+console.log("\n== 密码连错计数与冷却（core/auth）==");
+{
+  const mem={};
+  const storage={getItem:k=>(k in mem?mem[k]:null),setItem:(k,v)=>{mem[k]=String(v)},removeItem:k=>{delete mem[k]}};
+  let t=0;
+  const g=F("createPasswordFailGuard")(storage,{now:()=>t});
+  eq("上限与冷却常量",[F("PASSWORD_FAIL_LIMIT"),F("PASSWORD_RETRY_COOLDOWN_MS")],[5,60000]);
+  eq("只认凭证错误（按 code）",F("isPasswordFailure")({code:"invalid_credentials",message:"whatever"}),true);
+  eq("无 code 时按 message 兜底",F("isPasswordFailure")({message:"Invalid login credentials"}),true);
+  /* 这几类不是"用户在猜密码"，计入会把断网重试 / 未确认邮箱的人锁错 */
+  eq("网络失败不计",F("isPasswordFailure")({code:"fetch_failed",message:"Failed to fetch"}),false);
+  eq("邮箱未确认不计",F("isPasswordFailure")({code:"email_not_confirmed"}),false);
+  eq("请求过频不计",F("isPasswordFailure")({code:"over_request_rate_limit"}),false);
+  eq("空错误不计",F("isPasswordFailure")(null),false);
+  eq("前 4 次不引导",[1,2,3,4].map(()=>g.record("a@b.com").guide),[false,false,false,false]);
+  eq("第 5 次起引导并锁 60 秒",(()=>{const s=g.record("a@b.com");return[s.guide,s.locked,s.retryInMs]})(),[true,true,60000]);
+  t=30000;
+  eq("冷却内仍是锁、剩余一半",[g.state("a@b.com").locked,g.state("a@b.com").retryInMs],[true,30000]);
+  t=60000;
+  eq("到期解锁但面板留着",[g.state("a@b.com").locked,g.state("a@b.com").guide],[false,true]);
+  eq("到期后再错一次重新计时",[g.record("a@b.com").retryInMs,g.state("a@b.com").locked],[60000,true]);
+  eq("计数只累加不重置为 5",g.state("a@b.com").fails,6);
+  t=200000;
+  g.reset("a@b.com");
+  eq("登录成功清零后回到普通提示",[g.state("a@b.com").fails,g.state("a@b.com").guide,g.state("a@b.com").locked],[0,false,false]);
+  eq("邮箱大小写与首尾空格归一到同一计数",[g.record(" A@B.com ").fails,g.state("a@b.com").fails],[1,1]);
+  eq("换邮箱各计各的",[g.record("x@y.com").fails,g.state("a@b.com").fails],[1,1]);
+  eq("计数键带前缀不误伤别的偏好",Object.keys(mem).every(k=>k.indexOf(F("PASSWORD_FAIL_KEY_PREFIX"))===0),true);
+  eq("storage 抛错时降级为不锁定",(()=>{
+    const bad=F("createPasswordFailGuard")({getItem(){throw new Error("quota")},setItem(){throw new Error("quota")},removeItem(){throw new Error("quota")}});
+    const s=bad.record("a@b.com");
+    return[s.guide,s.locked];
+  })(),[false,false]);
+  eq("storage 缺失也不抛",(()=>{
+    const none=F("createPasswordFailGuard")(null);
+    return[none.record("a@b.com").guide,none.state("a@b.com").guide];
+  })(),[false,false]);
+  eq("坏 JSON 读作未计次",(()=>{mem["planner.authFail.z@w.com"]="{oops";return F("createPasswordFailGuard")(storage).state("z@w.com").fails})(),0);
+}
+
+console.log("\n== 桌面壳：引导面板文案 ==");
+eq("未到上限不写标题",F("fallbackTitleText")({fails:3,guide:false,locked:false,retryInMs:0}),"");
+eq("锁定时报剩余秒数",F("fallbackTitleText")({fails:5,guide:true,locked:true,retryInMs:60000}),"密码已连续输错 5 次。为保护账号，密码登录暂停 60 秒。");
+eq("非整秒向上取整",/暂停 1 秒。$/.test(F("fallbackTitleText")({fails:5,guide:true,locked:true,retryInMs:100})),true);
+eq("到期后改成指路",F("fallbackTitleText")({fails:7,guide:true,locked:false,retryInMs:0}),"密码已连续输错 7 次。换个方式更快：发一封重置密码邮件，或用邮箱链接 / 第三方登录。");
+
 console.log("\n== 移动壳：关联目标下拉（曾被 concat 的一层展开语义打碎）==");
 {
   const goals = { weekly: [{ id: "g1", title: "周目标一" }], monthly: [{ id: "g2", title: "月目标一" }], yearly: [{ id: "g3", title: "年度主线" }], reviews: [] };

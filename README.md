@@ -49,7 +49,7 @@
 
 ```
 src/core/     业务核心：零 DOM。状态模型、日期、循环展开、节假日与农历、筛选、
-              目标聚合、分组几何、写操作与撤销、同步与装载决策、认证文案
+              目标聚合、分组几何、写操作与撤销、同步与装载决策、认证文案与连错处置
 src/endpoint.js  一处决定"Supabase 请求发到哪"（部署态走同域代理，dev 直连）
 src/planner.js   桌面壳：渲染模板、事件绑定、拖拽、DOM 交互、云端传输
 src/mobile/      移动壳：路由、tab、登录、编辑器与筛选面板、自己的会话水管
@@ -151,6 +151,14 @@ https://journal-planner-rfjj5zmttgr.qoder.zone/functions/v1/app/auth/v1/verify?t
 
 注意 `token` 要用 `{{ .TokenHash }}`（URL 里的验证令牌，= 带前缀的哈希），不是 `{{ .Token }}`（那是 6 位数字验证码）。另外 PKCE 的 `code_verifier` 存在发起登录那个浏览器的 localStorage 里，邮件链接必须在**同一个浏览器**打开才能完成交换（微信内置浏览器收到链接时，先点右上角"用系统浏览器打开"，且登录页也要在该系统浏览器里发起）。
 
+**重置密码（Recovery）邮件模板同一处理**，但**后台这一项还没改**（2026-10-01 只动了代码，没动 Supabase 后台）。默认模板的链接同样指向 `*.supabase.co`，桌面端所在网络能直达、用得着；手机点了就是打不开的那一页。后台 Authentication → Email Templates → Recovery 换成：
+
+```
+https://journal-planner-rfjj5zmttgr.qoder.zone/functions/v1/app/auth/v1/verify?token={{ .TokenHash }}&type=recovery&redirect_to={{ .RedirectTo }}
+```
+
+与 Magic Link 那条只差 `type` 一个字面量（GoTrue 的 recovery 模板对应 `type=recovery`）。代理侧不用改：`/auth/v1/*` 整段前缀本就在放行名单里（`function/index.ts:13`），`location` 响应头回传也已经在（`function/index.ts:24`）。改完后的实测手法与 magiclink 同形：`curl -i "…/functions/v1/app/auth/v1/verify?token=<真令牌>&type=recovery&redirect_to=<本站 index.html>"` 该回 303 并带 `location`。
+
 **排查**：任何 URL 加 `?direct=1` 强制直连 Supabase（偏好记在 `sessionStorage`），可立刻区分"是代理的问题还是别的问题"。
 
 ## 技术栈
@@ -185,6 +193,14 @@ npm run dev
 
 登录方式：邮箱魔法链接（OTP）、邮箱密码，以及 Google / GitHub OAuth。OAuth 需要在 Supabase 后台先配好对应 Provider。
 
+**同一邮箱连续输错密码 5 次**会停下密码这条路，把另外三条出路摆到眼前：登录卡片里出现一块虚线引导区，含"发送重置密码邮件"（`resetPasswordForEmail`，带 60 秒重发冷却）与"改用邮箱链接登录"，并指向已有的 Google / GitHub 按钮；同时密码提交禁用 60 秒，面板标题逐秒倒数，到点自动放开、引导区留着继续指路。口径与分工：
+
+- 判定全在 `src/core/auth.js`（`createPasswordFailGuard` / `isPasswordFailure`，纯规则 + 由壳注入 storage），桌面 `src/planner.js` 与移动 `src/mobile/login.js` 只管读写与展示，两端不会各写一套。
+- 只统计"凭证不对"（`invalid_credentials`）。网络失败、邮箱未确认、发信过频都不计入 —— 否则断网点重试会被当成猜密码，锁错人。
+- 计数键按邮箱归一（trim + 小写）存 `localStorage` 的 `planner.authFail.<邮箱>`。桌面与移动同域，所以两端共用同一份；登录成功或走完重置流程即清零。换邮箱各计各的，输入框一改邮箱就重判面板与按钮状态。`localStorage` 不可用（无痕 / 将来的小程序）时整体降级为"不锁"，绝不把登录挡死。
+- 冷却到期后再错一次就重新计时 60 秒，不按 5 的倍数另起一轮。冷却内提交不出网（本地拦掉），避免白撞 Supabase 自己的频率限制。
+- 走完重置邮件里的链接回来时，auth-js 发的是 `PASSWORD_RECOVERY` 而不是 `SIGNED_IN`，两端都停在"设置新密码"表单（提交走 `updateUser`）而不是直接放进主界面 —— 否则旧密码依旧是错的，下次还是连错五次。
+
 ## 数据与持久化
 
 单个 `planner_states` 表，`user_id` 主键 + `state` jsonb 整包，RLS 策略限定每个用户只能读写自己的行。
@@ -197,11 +213,11 @@ npm run dev
 ## 测试
 
 ```bash
-npm test          # 309 条断言：node _recur_test.js src/planner.js
+npm test          # 333 条断言：node _recur_test.js src/planner.js
 npm run golden    # 渲染金样本：16 段 innerHTML 落盘 _golden.json（已 gitignore）
 ```
 
-**`_recur_test.js`** 用 `vm` 在桩化 DOM 中执行桌面壳，但断言打到的是 **core 的真实实现**：`_core_seed.mjs` 从壳的 import 语句反推需要哪些符号（含别名，如 `deleteTask as deleteTaskData`），并用访问器挂进 vm 全局 —— 必须用访问器而不是取值，否则 ESM 的 live binding 会被冻结成快照，`state` 被 `setState` 重新赋值后壳读不到。覆盖范围：重复展开引擎、节假日口径、日历字标与底色、拼音检索、逾期/迟完边界、写操作与撤销、同步与装载决策、认证文案分支、`index.html` 与 JS 之间的选择器 id 对账；壳里的纯函数也直接 `import` 进来断言（如移动壳 `editor.js` 的 `goalOptions` / `goalOptionValue`，它不碰 DOM，所以能脱离浏览器测）。
+**`_recur_test.js`** 用 `vm` 在桩化 DOM 中执行桌面壳，但断言打到的是 **core 的真实实现**：`_core_seed.mjs` 从壳的 import 语句反推需要哪些符号（含别名，如 `deleteTask as deleteTaskData`），并用访问器挂进 vm 全局 —— 必须用访问器而不是取值，否则 ESM 的 live binding 会被冻结成快照，`state` 被 `setState` 重新赋值后壳读不到。覆盖范围：重复展开引擎、节假日口径、日历字标与底色、拼音检索、逾期/迟完边界、写操作与撤销、同步与装载决策、认证文案与密码连错计数分支（`createPasswordFailGuard` 的 storage 由壳注入，core 不认识 `localStorage`，所以能在 Node 里拿假对象连冷却和降级一起测）、`index.html` 与 JS 之间的选择器 id 对账；壳里的纯函数也直接 `import` 进来断言（如移动壳 `editor.js` 的 `goalOptions` / `goalOptionValue`，它不碰 DOM，所以能脱离浏览器测）。
 
 **`npm run golden`** 是重构期间的等价门：固定夹具（含循环 / 课程 / 逾期 / 迟完 / 跨周跨月 / 带成员目标）渲染 7 视图 × 2 看板模式 + 导航 + banner，共 16 段 `innerHTML` 落盘，改动前后逐字节比对。它的价值已被验证过一次：把 `yearSplit` 返回的 `recurCount` 在壳里按 `recurCnt` 解构（漏了重命名）导致年视图少渲染 107 字符，`npm test` 全绿也没发现，金样本一眼可见。
 
@@ -216,6 +232,10 @@ sed -e '6,17d' -e 's|import("/src/main.js")|import("/_desktop_boot.js")|' index.
 ```
 
 删的是头部那段移动分流 shim（第 6–17 行），留着它，探针在窄视口下会被 `location.replace` 弹去 `/mobile.html`。
+
+加 `?probe=login` 时同一份假 client 改走**登录链路**：`getSession` 先回空（停在登录页）、`signInWithPassword` 默认必回 `invalid_credentials`、`resetPasswordForEmail` / `updateUser` 回成功，并把 `onAuthStateChange` 的回调留在 `window.__probeAuth` 上，于是连错计数、60 秒冷却、面板指路、`PASSWORD_RECOVERY` 进"设置新密码"都能在浏览器里跑真实监听器链；冷却不必干等 60 秒，把 `localStorage` 里的 `unlockAt` 改到过去即可。移动壳对应的是 `_mobile_login_probe.html` + `_mobile_login_probe.js`（桩会话直接驱动 `renderLogin`）与 `_mobile_login_frame.html`（390px iframe，用来量登录页在窄视口下的几何 —— 内置浏览器没有可见 surface，顶层 `innerWidth` 恒为 0，量不到）。这三份是验证工具，不参与构建。
+
+2026-10-01 用这套探针实测过的链路（两端各自跑过）：连错 5 次第 5 次弹面板并禁用提交、第 6 次不出网、切邮箱链接后同一提交按钮放开、发重置邮件后按钮进入 60 秒重发冷却、改 `unlockAt` 到过去后计时器自己放开并抹掉"暂停中"那行、登录成功清零计数、`PASSWORD_RECOVERY` 停在"设置新密码"且保存后进主界面。移动壳 390px 下 `overflowX=0`、面板两个按钮高 48px。**没测到的**：真机指针命中与观感、真发一封重置邮件（假 client 不碰 Supabase），以及 Recovery 模板未改前手机点邮件链接的实际表现。
 
 桌面批量选择这条壳路径的断言（34 条）原先单独立在 `_bulk_test.js` 里，2026-09-30 已并入 `_recur_test.js`：那份脚本用的是自己的装载层，只重写了 `pinyin-pro` 一条 import，而 `planner.js` 现在 import 了 13 个模块，`vm` 里加载必炸、又被它自己的 `try/catch` 吞成一行提示，于是所有断言在 undefined 上整片失效——它挂在 npm scripts 之外太久，实际早就不是可用测试。并入后走 `_core_seed.mjs` 那套 seed（剥全部 import + `defineProperties` 挂 live getter），顺带去掉两份脚本各写一遍的 id 对账。
 
@@ -235,7 +255,9 @@ supabase/migrations/            建表 + RLS 策略
 _recur_test.js / _core_seed.mjs 断言与 core 符号装载
 _golden_render.mjs              渲染金样本
 _mobile_frame.html              移动壳版式探针（免登录，桩会话）
-_desktop_boot.js                桌面探针的假 client 入口（副本 _desktop_frame.html 现生成、不提交）
+_mobile_login_probe.html/.js    移动壳登录页探针（桩会话驱动连错计数与重置密码链路）
+_mobile_login_frame.html        把上面那份装进 390px iframe 量几何
+_desktop_boot.js                桌面探针的假 client 入口（副本 _desktop_frame.html 现生成、不提交；?probe=login 走登录链路）
 .env.example                    环境变量模板
 .手帐风时间管理台.qoder.site     Qoder Sites 发布清单（见下）
 ```

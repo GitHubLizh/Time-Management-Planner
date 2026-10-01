@@ -9,7 +9,7 @@ import { state, setState, defaultState, mk, taskById } from "./core/schema.js";
 import { filteredTasks, tasksOn, splitId, isOverdue, overdueDays, overdueList, syncDoneAt, isLateDone, lateDays, lateList, statsOf, hasActiveFilter,
   scheduleGrid, dayGroups, weekDaysOf, miniCalGrid, weekColumns, dailyCounts, monthTasksOf, monthGrid, progressWeeks, monthSpanFilter, ganttCells, yearSplit, yearMonthDays, monthSlice, monthlyRates, kanbanSplit } from "./core/selectors.js";
 import { goalsOf, goalLevel, goalById, goalTasks, goalVisibleThisWeek, taskGoal, goalProgress } from "./core/goals.js";
-import { authErrorMessage } from "./core/auth.js";
+import { authErrorMessage, isPasswordFailure, createPasswordFailGuard, PASSWORD_FAIL_LIMIT } from "./core/auth.js";
 import { toggleTaskDone, applyTaskDraftRules, duplicateTask, deleteTask as deleteTaskData, bulkToggleDone, bulkDelete, saveTask, saveGoal, deleteGoal as deleteGoalData, saveReview, deleteReview as deleteReviewData, moveGoal, applyDrop, applyKanbanDrop } from "./core/mutations.js";
 import { remoteUpdatedAt, localUpdatedAt, ensureUpdatedAt, decidePush, decidePull, buildPushPayload, decideInitialSource } from "./core/sync.js";
 
@@ -145,25 +145,69 @@ function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&l
 let authMode="login";
 let authEventsBound=false;
 let dateWatcherStarted=false;
+let authBusy=false;          // 有一次登录/注册/发信在飞：期间任何地方都不许把提交按钮放开
+let recoveryPending=false;   // 从重置密码邮件链接回来：新密码没落定前不放进主界面
+let plannerReady=false;      // initializePlanner 只跑一次（它挂定时器与窗口监听）
+let guardEmail="";           // 最近一次触发"连错引导"的邮箱，输入框清空后仍按它判定
+let guardTicker=null;
+let guardWasLocked=false;
+/* 连错计数落在 localStorage，键按邮箱归一（见 core/auth）。桌面 index.html 与移动 mobile.html
+   同域，所以两端共用同一份计数；无 localStorage 的环境（小程序/Worker）传 null，守卫内部一律
+   按"没锁"降级，绝不把登录挡死。 */
+const passwordFail=createPasswordFailGuard(typeof localStorage==="undefined"?null:localStorage);
 function setAuthMessage(message){const el=$("#authMessage");if(el)el.textContent=message||"";}
+function activeGuardEmail(){const typed=$("#authEmail").value.trim();return typed||guardEmail;}
+function fallbackTitleText(st){
+  if(!st.guide)return"";
+  const base="密码已连续输错 "+st.fails+" 次。";
+  return st.locked
+    ?base+"为保护账号，密码登录暂停 "+Math.ceil(st.retryInMs/1000)+" 秒。"
+    :base+"换个方式更快：发一封重置密码邮件，或用邮箱链接 / 第三方登录。";
+}
+function renderGuard(){
+  const panel=$("#authFallback");
+  if(!panel)return;
+  const st=passwordFail.state(activeGuardEmail());
+  const show=st.guide&&authMode!=="reset";
+  panel.hidden=!show;
+  if(show)$("#authFallbackTitle").textContent=fallbackTitleText(st);
+  // 只锁密码这一条路：邮箱链接与第三方登录此刻必须还能点
+  if(!authBusy)$("#authSubmit").disabled=show&&st.locked&&authMode==="login";
+  if(st.locked){if(!guardTicker)guardTicker=setInterval(renderGuard,1000);} // 每秒重读，到点自动放开
+  else{
+    if(guardTicker){clearInterval(guardTicker);guardTicker=null;}
+    const msgEl=$("#authMessage");
+    if(guardWasLocked&&msgEl&&/^密码登录暂停中/.test(msgEl.textContent))setAuthMessage(""); // 到点了就别把"暂停中"留在屏上
+  }
+  guardWasLocked=!!st.locked;
+}
 function setAuthMode(mode){
   authMode=mode;
   const isLogin=mode==="login";
   const isLink=mode==="link";
+  const isReset=mode==="reset";
   const _d=new Date();
   $("#authStampDate").textContent=(_d.getMonth()+1)+"月"+_d.getDate()+"日";
-  $("#authTitle").textContent=isLink?"邮箱链接登录":isLogin?"登录时间管理台":"注册时间管理台";
-  $("#authDescription").textContent=isLink
+  $("#authTitle").textContent=isReset?"设置新密码":isLink?"邮箱链接登录":isLogin?"登录时间管理台":"注册时间管理台";
+  $("#authDescription").textContent=isReset
+    ?(currentUser&&currentUser.email?"邮件链接已确认身份，为 "+currentUser.email+" 设置新密码。":"邮件链接已确认身份，请设置新密码。")
+    :isLink
     ?"无需密码，向你的邮箱发送一封登录邮件，点击其中链接即可登录。新邮箱会自动创建账户。"
     :isLogin?"登录后可在不同设备间安全同步你的日程与目标。":"注册后可将本机日程安全同步到你的账户。";
+  /* 必填字段被隐藏时，浏览器会在 submit 前静默拦住表单校验（既不报错也不走监听），
+     所以"隐藏"和"required"必须一起改，不能只藏不给。 */
+  $("#authEmailRow").hidden=isReset;
+  $("#authEmail").required=!isReset;
   $("#authPasswordRow").hidden=isLink;
   $("#authPassword").required=!isLink;
-  $("#authSubmit").textContent=isLink?"发送登录链接":isLogin?"登录":"注册";
+  $("#authSubmit").textContent=isReset?"保存新密码":isLink?"发送登录链接":isLogin?"登录":"注册";
   $("#authSubmit").disabled=false;
+  $("#authMode").hidden=isReset;
   $("#authMode").textContent=isLink?"返回密码登录":isLogin?"没有账号？注册":"已有账号？登录";
-  $("#authOtp").hidden=isLink;
+  $("#authOtp").hidden=isLink||isReset;
   if(!isLink)$("#authPassword").autocomplete=isLogin?"current-password":"new-password";
   setAuthMessage("");
+  renderGuard();
 }
 function showAuthScreen(message){
   document.body.classList.add("auth-locked");
@@ -176,15 +220,67 @@ function showPlanner(user){
   $("#authUser").hidden=false;
   document.body.classList.remove("auth-locked");
 }
+function showResetForm(){
+  document.body.classList.add("auth-locked");
+  $("#authUser").hidden=true;
+  setAuthMode("reset");
+  setAuthMessage("邮件链接已验证，请设置新密码。");
+}
+/* 进主界面的唯一入口：恢复流程里 activateSession 会先停在"设置新密码"，
+   密码保存成功后再由 saveNewPassword 走到这里，initializePlanner 因此只跑一次。 */
+async function enterPlanner(){
+  if(!plannerReady){plannerReady=true;initializePlanner();}
+  if(currentUser)showPlanner(currentUser);
+  if(dirty)await saveRemote();
+}
+async function sendResetEmail(btn){
+  const email=$("#authEmail").value.trim()||guardEmail;
+  if(!supabaseClient||!email)return;
+  btn.disabled=true;
+  setAuthMessage("正在发送重置密码邮件…");
+  const {error}=await supabaseClient.auth.resetPasswordForEmail(email,{redirectTo:window.location.origin});
+  if(error){btn.disabled=false;setAuthMessage(authErrorMessage(error));return;}
+  setAuthMessage("重置密码邮件已发到 "+email+"，请在同一浏览器打开邮件里的链接设置新密码（可能在垃圾邮件里）。");
+  // 与邮箱链接同一套冷却：Supabase 对同一地址有发信频率限制，连点只会换来一次 rate limit
+  let left=60;
+  btn.textContent=`重新发送(${left})`;
+  const timer=setInterval(()=>{
+    left--;
+    if(left<=0){clearInterval(timer);btn.textContent="发送重置密码邮件";btn.disabled=false;return;}
+    btn.textContent=`重新发送(${left})`;
+  },1000);
+}
+async function saveNewPassword(){
+  const password=$("#authPassword").value;
+  authBusy=true;$("#authSubmit").disabled=true;
+  setAuthMessage("正在保存新密码…");
+  const {error}=await supabaseClient.auth.updateUser({password});
+  authBusy=false;$("#authSubmit").disabled=false;
+  if(error){setAuthMessage(authErrorMessage(error));return;}
+  recoveryPending=false;
+  if(currentUser)passwordFail.reset(currentUser.email); // 邮件链接已证明邮箱归本人，连错的账到这里清掉
+  if(guardEmail)passwordFail.reset(guardEmail);
+  guardEmail="";
+  setAuthMessage("");
+  await enterPlanner();
+  renderGuard();
+}
 function bindAuthEvents(){
   if(authEventsBound)return;
   authEventsBound=true;
   $("#authMode").addEventListener("click",()=>setAuthMode(authMode==="login"?"signup":"login"));
   $("#authOtp").addEventListener("click",()=>setAuthMode("link"));
+  const fallbackLink=$("#authFallbackLink");
+  if(fallbackLink)fallbackLink.addEventListener("click",()=>setAuthMode("link"));
+  const resetBtn=$("#authResetPwd");
+  if(resetBtn)resetBtn.addEventListener("click",()=>sendResetEmail(resetBtn));
+  // 换邮箱就重新判定：锁定是"这个账号"在冷却，不该牵连另一个账号，也不该被清空输入框绕开
+  $("#authEmail").addEventListener("input",renderGuard);
   $("#authForm").addEventListener("submit",async e=>{
     e.preventDefault();
     const email=$("#authEmail").value.trim();
     if(!supabaseClient)return;
+    if(authMode==="reset"){await saveNewPassword();return;}
     if(authMode==="link"){
       $("#authSubmit").disabled=true;
       setAuthMessage("正在发送登录链接…");
@@ -201,14 +297,34 @@ function bindAuthEvents(){
       },1000);
       return;
     }
+    const st0=passwordFail.state(email);
+    if(authMode==="login"&&st0.locked){ // 冷却内不出网：省一次必错的请求，也别去撞 Supabase 自己的频率限制
+      // 这里刻意不写剩余秒数：这行字会一直留在错误行上，而秒数在面板标题里每秒刷新
+      setAuthMessage("密码登录暂停中，可先发重置密码邮件或改用邮箱链接登录。");
+      renderGuard();
+      return;
+    }
     const password=$("#authPassword").value;
+    authBusy=true;
     $("#authSubmit").disabled=true;
     setAuthMessage(authMode==="login"?"正在登录…":"正在注册…");
     const result=authMode==="login"
       ?await supabaseClient.auth.signInWithPassword({email,password})
       :await supabaseClient.auth.signUp({email,password});
+    authBusy=false;
     $("#authSubmit").disabled=false;
-    if(result.error){setAuthMessage(authErrorMessage(result.error));return;}
+    if(result.error){
+      if(authMode==="login"&&isPasswordFailure(result.error)){
+        guardEmail=email;
+        const st=passwordFail.record(email);
+        const left=PASSWORD_FAIL_LIMIT-st.fails;
+        setAuthMessage(authErrorMessage(result.error)+(st.guide?"":left>0?"（再错 "+left+" 次将暂停密码登录）":""));
+        renderGuard();
+        return;
+      }
+      setAuthMessage(authErrorMessage(result.error));return;
+    }
+    passwordFail.reset(email);guardEmail="";renderGuard(); // 进来了就把错账清掉，下回从头计
     if(authMode==="signup"&&!result.data.session)setAuthMessage("注册成功，请查收确认邮件后再登录。");
   });
   $("#signOut").addEventListener("click",async()=>{
@@ -241,9 +357,8 @@ async function activateSession(user){
   setState(src.state||defaultState());
   writeCache();
   dirty=!src.fromCloud; // 云端还没有这一行：把本机缓存（或空白状态）迁移上去；已有云端数据则不再回写，避免旧缓存覆盖
-  initializePlanner();
-  showPlanner(user);
-  if(dirty)await saveRemote();
+  if(recoveryPending){showResetForm();return;} // 恢复流程停在"设置新密码"，等密码落定再进主界面
+  await enterPlanner();
 }
 async function bootstrapPlanner(client,config){
   supabaseClient=client;
@@ -254,10 +369,18 @@ async function bootstrapPlanner(client,config){
   if(error){showAuthScreen(authErrorMessage(error));return;}
   if(data.session&&data.session.user)await activateSession(data.session.user);
   else showAuthScreen();
-  supabaseClient.auth.onAuthStateChange((_event,session)=>{
+  supabaseClient.auth.onAuthStateChange((event,session)=>{
     accessToken=session&&session.access_token||null;
+    /* 点重置邮件链接回来时 auth-js 发的是 PASSWORD_RECOVERY（不是 SIGNED_IN）：
+       会话此刻已有效，先把新密码设掉再放人进主界面，否则旧密码依旧是错的、下次照样连错。 */
+    if(event==="PASSWORD_RECOVERY"){
+      recoveryPending=true;
+      if(session&&session.user&&!currentUser)activateSession(session.user); // 事件比 bootstrap 早到也要把云端行读进来
+      showResetForm();
+      return;
+    }
     if(session&&session.user){if(!currentUser||currentUser.id!==session.user.id)activateSession(session.user);}
-    else if(!session){currentUser=null;accessToken=null;dirty=false;showAuthScreen();}
+    else if(!session){currentUser=null;accessToken=null;dirty=false;recoveryPending=false;showAuthScreen();}
   });
 }
 /* 日历日格排版：数字左上悬浮字标 休(红)/班(蓝)/末(玫瑰灰)，数字下方信息行（见 dayInfoBadge）。

@@ -96,6 +96,9 @@ export function createSession(client, config) {
     signIn: (email, password) => client.auth.signInWithPassword({ email, password }),
     signUp: (email, password) => client.auth.signUp({ email, password }),
     otp: (email) => client.auth.signInWithOtp({ email, options: { emailRedirectTo: selfUrl } }),
+    /* 重置密码邮件的落点同样回到本页：桌面/移动各自回自己的 URL，避免手机被甩到桌面版 */
+    resetEmail: (email) => client.auth.resetPasswordForEmail(email, { redirectTo: selfUrl }),
+    updatePassword: (password) => client.auth.updateUser({ password }),
     oauth: (provider) => client.auth.signInWithOAuth({ provider, options: { redirectTo: selfUrl } }),
     signOut: () => client.auth.signOut(),
     onChange: cb => client.auth.onAuthStateChange((_e, s) => cb(s)),

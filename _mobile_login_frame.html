@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><title>mobile login frame</title>
+<style>body{margin:0;background:#222;font-family:sans-serif}iframe{border:0;display:block;background:#fff}</style>
+</head>
+<body>
+<!-- 与 _mobile_probe.html 同一手法：布局与 matchMedia 认的是 iframe 自己的宽度，不是外层窗口。
+     内置浏览器一直没有可见 surface（顶层 innerWidth 恒为 0），量登录页几何只能走这条 iframe 路。 -->
+<iframe id="p" src="/_mobile_login_probe.html?auto=fail5" width="390" height="844"></iframe>
+<script>
+window.geom = () => document.getElementById('p').contentWindow.__probe.geom();
+window.keys = () => document.getElementById('p').contentWindow.__probe.keys();
+</script>
+</body>
+</html>

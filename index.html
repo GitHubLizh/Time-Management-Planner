@@ -527,6 +527,13 @@ canvas.chart{width:100%;height:170px}
   .auth-oauth button{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;border:1.5px solid var(--line);border-radius:8px;padding:8px 10px;font-size:.83rem;background:var(--paper);color:var(--ink);font-family:inherit;cursor:pointer}
   .auth-oauth button:hover{border-color:var(--accent)}
   .auth-oauth svg{width:17px;height:17px;flex:0 0 auto}
+  /* 连错 5 次后出现的引导块：把"重置密码 / 邮箱链接 / 第三方"三条出路放到同一屏内，
+     不靠人自己往下滚去找那两个本来就存在的按钮。底色用 accent-soft 与卡片区分。 */
+  .auth-fallback{display:grid;gap:8px;margin:12px 0 0;padding:12px;border:1.5px dashed var(--accent);
+    border-radius:10px;background:var(--accent-soft)}
+  .auth-fallback .t{font-size:.82rem;font-weight:700;line-height:1.5;color:var(--ink)}
+  .auth-fallback .hint{font-size:.7rem;color:var(--muted);line-height:1.6}
+  .auth-fallback .btn{width:100%}
   body.auth-locked header,body.auth-locked main{display:none}
   body:not(.auth-locked) .auth-screen{display:none}
 
@@ -548,12 +555,18 @@ canvas.chart{width:100%;height:170px}
       <h2 id="authTitle">登录时间管理台</h2>
       <p id="authDescription">登录后可在不同设备间安全同步你的日程与目标。</p>
       <form class="auth-form" id="authForm">
-        <label>邮箱<input id="authEmail" type="email" autocomplete="email" required></label>
+        <label id="authEmailRow">邮箱<input id="authEmail" type="email" autocomplete="email" required></label>
         <label id="authPasswordRow">密码<input id="authPassword" type="password" autocomplete="current-password" minlength="8" required></label>
         <button class="btn" id="authSubmit" type="submit">登录</button>
       </form>
       <button class="btn ghost" id="authMode" type="button" style="width:100%;margin-top:10px">没有账号？注册</button>
       <button class="btn ghost" id="authOtp" type="button" style="width:100%;margin-top:8px">邮箱链接登陆</button>
+      <div class="auth-fallback" id="authFallback" hidden>
+        <div class="t" id="authFallbackTitle"></div>
+        <button class="btn" id="authResetPwd" type="button">发送重置密码邮件</button>
+        <button class="btn ghost" id="authFallbackLink" type="button">改用邮箱链接登录</button>
+        <div class="hint">重置邮件里的链接要在同一浏览器打开才能完成验证；也可以直接用下方的 Google / GitHub 账号登录。</div>
+      </div>
       <div class="auth-divider">或使用第三方账号</div>
       <div class="auth-oauth">
         <button id="authOAuthGoogle" type="button">

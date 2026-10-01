@@ -28,3 +28,63 @@ export function authErrorMessage(err){
   if(/failed to fetch|network|fetch failed|timeout/i.test(m))return"网络连接失败，请检查网络后重试。";
   return m;
 }
+
+/* ============ 密码连错的处置规则 ============ */
+/* 连错到达上限后暂停密码提交，并把"重置密码 / 邮箱链接 / 第三方"这三条出路摆到眼前。
+   两条口径要说清楚：
+   1) 只统计"凭证不对"（invalid_credentials）这一类。网络失败、邮箱未确认、发信过频都不算 ——
+      把它们计入会把"用户在断网上重试"误判成"有人在猜密码"，锁错人。
+   2) 计次按邮箱归一（trim + 小写）存在调用方给的 storage 里。core 不认识 localStorage，
+      两端各自注入（桌面 index.html 与移动 mobile.html 同域，于是两壳看到的是同一份计数）；
+      测试注入一个假对象即可跑纯逻辑。
+   注意 storage 可能整个抛错（无痕模式），此时一律按"没锁"降级，不能把登录挡死。 */
+export const PASSWORD_FAIL_LIMIT=5;
+export const PASSWORD_RETRY_COOLDOWN_MS=60000;
+export const PASSWORD_FAIL_KEY_PREFIX="planner.authFail.";
+
+function passwordFailKey(email){
+  return PASSWORD_FAIL_KEY_PREFIX+String(email||"").trim().toLowerCase();
+}
+export function isPasswordFailure(err){
+  if(!err)return false;
+  if(err.code)return err.code==="invalid_credentials";
+  return /invalid login credentials/i.test(String(err.message||""));
+}
+export function createPasswordFailGuard(storage,opts){
+  const o=opts||{};
+  const limit=o.limit??PASSWORD_FAIL_LIMIT;
+  const cooldownMs=o.cooldownMs??PASSWORD_RETRY_COOLDOWN_MS;
+  const clock=o.now||(()=>Date.now());
+  const read=k=>{try{return storage&&storage.getItem(k)}catch(e){return null}};
+  const write=(k,v)=>{try{storage&&storage.setItem(k,v)}catch(e){}};
+  const drop=k=>{try{storage&&storage.removeItem(k)}catch(e){}};
+  const load=email=>{
+    const raw=read(passwordFailKey(email));
+    if(!raw)return {fails:0,unlockAt:0};
+    try{
+      const rec=JSON.parse(raw);
+      return {fails:Math.max(0,Number(rec&&rec.fails)||0),unlockAt:Number(rec&&rec.unlockAt)||0};
+    }catch(e){return {fails:0,unlockAt:0}}
+  };
+  // guide 只跟"到没到上限"走，locked 只在冷却内 —— 面板要留在眼前，按钮到点就该放开
+  const view=(rec,at)=>{
+    const guide=rec.fails>=limit;
+    const locked=guide&&at<rec.unlockAt;
+    return {fails:rec.fails,guide,locked,retryInMs:locked?rec.unlockAt-at:0};
+  };
+  const at=when=>when==null?clock():when;
+  return {
+    limit,
+    state(email,when){return view(load(email),at(when))},
+    /* 到上限那一次起锁；此后每次再错都重新计时（不靠"每 5 次"的倍数，少一条口径） */
+    record(email,when){
+      const t=at(when);
+      const rec=load(email);
+      const next={fails:rec.fails+1,unlockAt:0};
+      if(next.fails>=limit)next.unlockAt=t+cooldownMs;
+      write(passwordFailKey(email),JSON.stringify(next));
+      return view(next,t);
+    },
+    reset(email){drop(passwordFailKey(email))},
+  };
+}
