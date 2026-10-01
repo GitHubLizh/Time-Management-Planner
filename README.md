@@ -143,7 +143,7 @@ function/index.ts 同域反向代理（Edge 函数）
 - 网关对**写操作要求同源**。`curl` 不带 `Origin` 时 POST 会被挡（403），所以登录 POST 这类路径没法用 curl 验证，必须浏览器实测。
 - 函数用 `redirect:"manual"` 不自动跟随上游重定向，因此 `location` 必须在响应头回传白名单里。邮箱链接登录的验证页（`/auth/v1/verify`）正是靠上游 303 的 `Location` 把浏览器送回站点页，丢了它手机点邮件链接会停在空白/错误页。
 
-**邮箱链接（Magic Link）必须改 Supabase 邮件模板**（2026-09-30 已在后台改好并保存）：Supabase 默认模板里的 `{{ .ConfirmationURL }}` 永远指向 `*.supabase.co`，手机网络打不开。要在 Supabase 后台 Authentication → Email Templates → Magic Link 把链接换成走本站代理的同形 URL：
+**邮箱链接（Magic Link）必须改 Supabase 邮件模板**（2026-09-30 已在后台改好并保存）：Supabase 默认模板里的 `{{ .ConfirmationURL }}` 永远指向 `*.supabase.co`，手机网络打不开。要在 Supabase 后台 Authentication → Email Templates → Magic Link（文档里这一项的标签写作 Magic link or OTP）把链接换成走本站代理的同形 URL：
 
 ```
 https://journal-planner-rfjj5zmttgr.qoder.zone/functions/v1/app/auth/v1/verify?token={{ .TokenHash }}&type=magiclink&redirect_to={{ .RedirectTo }}
@@ -151,11 +151,15 @@ https://journal-planner-rfjj5zmttgr.qoder.zone/functions/v1/app/auth/v1/verify?t
 
 注意 `token` 要用 `{{ .TokenHash }}`（URL 里的验证令牌，= 带前缀的哈希），不是 `{{ .Token }}`（那是 6 位数字验证码）。另外 PKCE 的 `code_verifier` 存在发起登录那个浏览器的 localStorage 里，邮件链接必须在**同一个浏览器**打开才能完成交换（微信内置浏览器收到链接时，先点右上角"用系统浏览器打开"，且登录页也要在该系统浏览器里发起）。
 
-**重置密码（Recovery）邮件模板同一处理**，但**后台这一项还没改**（2026-10-01 只动了代码，没动 Supabase 后台）。默认模板的链接同样指向 `*.supabase.co`，桌面端所在网络能直达、用得着；手机点了就是打不开的那一页。后台 Authentication → Email Templates → Recovery 换成：
+**重置密码邮件模板同一处理**，但**后台这一项还没改**（2026-10-01 只动了代码，没动 Supabase 后台）。默认模板的链接同样指向 `*.supabase.co`，桌面端所在网络能直达、用得着；手机点了就是打不开的那一页。
+
+后台里这一项的标签按文档是 **Reset password**，**不叫 Recovery** —— `recovery` 只是 GoTrue 内部的消息类型名，出现在验证 URL 的 `type=` 参数里（2026-10-01 就照内部名去后台找过一圈，找不到）。菜单层级官方文档只写到"the Email Templates page in the dashboard"没给逐字路径；本项目 2026-09-30 改 Magic Link 时走的是 Supabase 左侧 **Authentication → Email Templates**，重置这一项就在同一个列表里，按 **Reset password** 这个字面找（文档列出的标签还有 Confirm sign up / Invite user / Magic link or OTP / Change email address / Reauthentication / Password changed 等）。选中它，链接换成：
 
 ```
 https://journal-planner-rfjj5zmttgr.qoder.zone/functions/v1/app/auth/v1/verify?token={{ .TokenHash }}&type=recovery&redirect_to={{ .RedirectTo }}
 ```
+
+保存前先看该页列出的可用变量里有没有 `.RedirectTo`：各消息类型的变量集合不完全一样，没有它就退回把 `redirect_to` 写死成本站页面 URL。
 
 与 Magic Link 那条只差 `type` 一个字面量（GoTrue 的 recovery 模板对应 `type=recovery`）。代理侧不用改：`/auth/v1/*` 整段前缀本就在放行名单里（`function/index.ts:13`），`location` 响应头回传也已经在（`function/index.ts:24`）。改完后的实测手法与 magiclink 同形：`curl -i "…/functions/v1/app/auth/v1/verify?token=<真令牌>&type=recovery&redirect_to=<本站 index.html>"` 该回 303 并带 `location`。
 
@@ -235,7 +239,7 @@ sed -e '6,17d' -e 's|import("/src/main.js")|import("/_desktop_boot.js")|' index.
 
 加 `?probe=login` 时同一份假 client 改走**登录链路**：`getSession` 先回空（停在登录页）、`signInWithPassword` 默认必回 `invalid_credentials`、`resetPasswordForEmail` / `updateUser` 回成功，并把 `onAuthStateChange` 的回调留在 `window.__probeAuth` 上，于是连错计数、60 秒冷却、面板指路、`PASSWORD_RECOVERY` 进"设置新密码"都能在浏览器里跑真实监听器链；冷却不必干等 60 秒，把 `localStorage` 里的 `unlockAt` 改到过去即可。移动壳对应的是 `_mobile_login_probe.html` + `_mobile_login_probe.js`（桩会话直接驱动 `renderLogin`）与 `_mobile_login_frame.html`（390px iframe，用来量登录页在窄视口下的几何 —— 内置浏览器没有可见 surface，顶层 `innerWidth` 恒为 0，量不到）。这三份是验证工具，不参与构建。
 
-2026-10-01 用这套探针实测过的链路（两端各自跑过）：连错 5 次第 5 次弹面板并禁用提交、第 6 次不出网、切邮箱链接后同一提交按钮放开、发重置邮件后按钮进入 60 秒重发冷却、改 `unlockAt` 到过去后计时器自己放开并抹掉"暂停中"那行、登录成功清零计数、`PASSWORD_RECOVERY` 停在"设置新密码"且保存后进主界面。移动壳 390px 下 `overflowX=0`、面板两个按钮高 48px。**没测到的**：真机指针命中与观感、真发一封重置邮件（假 client 不碰 Supabase），以及 Recovery 模板未改前手机点邮件链接的实际表现。
+2026-10-01 用这套探针实测过的链路（两端各自跑过）：连错 5 次第 5 次弹面板并禁用提交、第 6 次不出网、切邮箱链接后同一提交按钮放开、发重置邮件后按钮进入 60 秒重发冷却、改 `unlockAt` 到过去后计时器自己放开并抹掉"暂停中"那行、登录成功清零计数、`PASSWORD_RECOVERY` 停在"设置新密码"且保存后进主界面。移动壳 390px 下 `overflowX=0`、面板两个按钮高 48px。**没测到的**：真机指针命中与观感、真发一封重置邮件（假 client 不碰 Supabase），以及 Reset password 模板未改前手机点邮件链接的实际表现。
 
 桌面批量选择这条壳路径的断言（34 条）原先单独立在 `_bulk_test.js` 里，2026-09-30 已并入 `_recur_test.js`：那份脚本用的是自己的装载层，只重写了 `pinyin-pro` 一条 import，而 `planner.js` 现在 import 了 13 个模块，`vm` 里加载必炸、又被它自己的 `try/catch` 吞成一行提示，于是所有断言在 undefined 上整片失效——它挂在 npm scripts 之外太久，实际早就不是可用测试。并入后走 `_core_seed.mjs` 那套 seed（剥全部 import + `defineProperties` 挂 live getter），顺带去掉两份脚本各写一遍的 id 对账。
 
