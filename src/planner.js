@@ -7,7 +7,7 @@ import { setPinyinImpl, filterSummary } from "./core/filters.js";
 import { recurText, occurrencesBetween, occDone, toggleOcc, recurDoneIn, recurStreak, statsPool } from "./core/recur.js";
 import { state, setState, defaultState, mk, taskById } from "./core/schema.js";
 import { filteredTasks, tasksOn, splitId, isOverdue, overdueDays, overdueList, syncDoneAt, isLateDone, lateDays, lateList, statsOf, hasActiveFilter,
-  scheduleGrid, dayGroups, weekDaysOf, miniCalGrid, weekColumns, dailyCounts, monthTasksOf, monthGrid, progressWeeks, monthSpanFilter, ganttCells, yearSplit, yearMonthDays, monthSlice, monthlyRates, kanbanSplit } from "./core/selectors.js";
+  scheduleGrid, dayGroups, weekDaysOf, miniCalGrid, weekColumns, dailyCounts, monthTasksOf, monthGrid, progressWeeks, monthSpanFilter, ganttCells, yearSplit, yearMonthDays, monthSlice, monthlyRates, kanbanSplit, foldKanbanCols, kanbanFoldReveal } from "./core/selectors.js";
 import { goalsOf, goalLevel, goalById, goalTasks, goalVisibleThisWeek, taskGoal, goalProgress } from "./core/goals.js";
 import { authErrorMessage, isPasswordFailure, createPasswordFailGuard, PASSWORD_FAIL_LIMIT } from "./core/auth.js";
 import { toggleTaskDone, applyTaskDraftRules, duplicateTask, deleteTask as deleteTaskData, bulkToggleDone, bulkDelete, saveTask, saveGoal, deleteGoal as deleteGoalData, saveReview, deleteReview as deleteReviewData, moveGoal, applyDrop, applyKanbanDrop } from "./core/mutations.js";
@@ -1105,10 +1105,18 @@ function drawYearChart(y,pool){
 function font(ctx,s){ctx.font=s+' "PingFang SC","Microsoft YaHei",sans-serif';}
 
 /* ================= 看板视图 ================= */
+/* 列内折叠态按分列模式各存一份（切模式不互相影响），只活在这一页的内存里：
+   写进 state 等于每点一次展开就整包推一次云端，纯显示偏好不该有这个代价。 */
+const kanbanExpanded={status:new Set(),type:new Set()};
+function toggleKanbanFold(key){
+  const s=kanbanExpanded[state.kanbanMode];
+  if(s.has(key))s.delete(key);else s.add(key);
+}
 function renderKanban(){
   const all=filteredTasks();
   const mode=state.kanbanMode;
   const {cols:kanbanCols,recurCount:recurCnt}=kanbanSplit(all,mode);
+  const folded=foldKanbanCols(kanbanCols,kanbanExpanded[mode]);
   let html=`<div class="kanban-switch">
     <button data-km="status" class="${mode==='status'?'active':''}">按状态分列</button>
     <button data-km="type" class="${mode==='type'?'active':''}">按任务类型分列</button>
@@ -1117,15 +1125,16 @@ function renderKanban(){
   </div>
   ${mode==="status"&&!state.kanbanDragHintSeen?'<div class="kanban-drag-hint" role="status"><b>提示</b> 拖拽任务到其他列以更新状态</div>':''}
   <div class="kanban ${mode==='type'?'type-mode':''}">`;
-  kanbanCols.forEach(col=>{
-    const key=col.key,label=col.label,list=col.tasks;
-    html+=`<div class="kanban-col" data-col="${key}"><h4>${esc(label)}<span class="tag">${list.length}</span></h4>
+  folded.forEach(col=>{
+    const key=col.key,label=col.label,list=col.shown;
+    html+=`<div class="kanban-col" data-col="${key}"><h4>${esc(label)}<span class="tag">${col.tasks.length}</span></h4>
       ${list.map(t=>`<div class="kanban-card" draggable="true" data-id="${t.id}">
         <button class="icon-btn kc-edit" draggable="false" title="编辑任务">${I.edit}</button>
         <div class="kc-title"><span class="prio-dot p${t.priority}" style="margin:0 4px 0 0"></span>${esc(t.title)}</div>
         <div class="kc-meta"><span class="tag outline">${esc(t.type)}</span><span>${t.end} ${isOverdue(t)?"已截止":"截止"}</span>${isOverdue(t)?overdueBadge(t):""}${isLateDone(t)?lateBadge(t):""}${t.course?`<span>${esc(t.timeSlot)}</span>`:""}</div>
         <div class="progress-bar"><i style="width:${t.progress}%"></i></div>
-      </div>`).join("")||'<div style="font-size:.7rem;color:var(--muted);text-align:center;padding:14px 0">拖拽任务到此列</div>'}
+      </div>`).join("")||'<div style="font-size:.7rem;color:var(--muted);text-align:center;padding:14px 0">拖拽任务到此列</div>'}${col.foldable?`
+      <button class="kanban-fold" data-kfold="${esc(key)}" aria-expanded="${col.collapsed?"false":"true"}">${col.collapsed?`展开其余 ${col.hiddenCnt} 条`:"收起"}</button>`:""}
     </div>`;
   });
   html+="</div>";
@@ -1136,6 +1145,11 @@ function renderKanban(){
     if(b.dataset.km){state.kanbanMode=b.dataset.km;save();renderAll();}
     if(b.dataset.seasonal)openModal(null,false);
   });
+  v.querySelectorAll("[data-kfold]").forEach(b=>b.addEventListener("click",e=>{
+    e.stopPropagation();
+    toggleKanbanFold(b.dataset.kfold);
+    renderKanban(); // 折叠只动这一屏，不必把导航/banner 一起重绘
+  }));
   let dragId=null,sourceCol="";
   const board=v.querySelector(".kanban");
   const clearDropTargets=()=>{
@@ -1159,8 +1173,13 @@ function renderKanban(){
     col.addEventListener("drop",e=>{
       e.preventDefault();
       const t=taskById(dragId);if(!t){clearDropTargets();return;}
-      const r=applyKanbanDrop(t,col.dataset.col,mode,col.dataset.col!==sourceCol);
+      const crossed=col.dataset.col!==sourceCol;
+      const r=applyKanbanDrop(t,col.dataset.col,mode,crossed);
       if(r.hintSeen)state.kanbanDragHintSeen=true;
+      if(crossed){ // 刚落进折叠列的卡片若不露在前 5 张，看着就像没拖过去；当场把那列展开
+        const reveal=kanbanFoldReveal(kanbanSplit(filteredTasks(),mode).cols,t.id);
+        if(reveal)kanbanExpanded[mode].add(reveal);
+      }
       clearDropTargets();save();renderAll();
     });
   });

@@ -60,6 +60,9 @@ a{color:var(--accent)}
 .m-card h2{font-size:.95rem;margin-bottom:10px;display:flex;align-items:center;gap:6px}
 .m-card h2 .count{margin-left:auto;font-size:.72rem;color:var(--muted);font-weight:400}
 .m-empty{font-size:.82rem;color:var(--muted);text-align:center;padding:20px 0}
+/* 看板列内折叠：一列超过 5 条才出现这颗按钮，触控高度按 44px 那档走，不能缩成一行文字链 */
+.m-fold{display:block;width:100%;min-height:44px;margin-top:8px;border:1.5px dashed var(--line);border-radius:10px;background:transparent;color:var(--muted);font-size:.85rem}
+.m-fold:active{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
 .m-row{
   display:flex;align-items:center;gap:12px;min-height:56px;padding:10px 0;
   border-bottom:1px dashed var(--line);

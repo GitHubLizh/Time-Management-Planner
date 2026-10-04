@@ -167,3 +167,26 @@ export function kanbanSplit(pool,mode){
   return {cols:cols.map(([key,label])=>({key,label,tasks:plain.filter(t=>mode==="status"?t.status===key:t.type===key)})),
     recurCount:pool.length-plain.length};
 }
+
+/* 看板列内折叠：一列超过 KANBAN_COL_LIMIT 条时只露前若干张卡，其余等人点开，
+   免得列多的时候整页被撑得老长。状态/类型两种分列走同一条规则。
+   expandedKeys 是各壳自己保管的展开列（Set）：纯显示偏好，不进 state，
+   否则点一次折叠就要往云端推一次整包。 */
+export const KANBAN_COL_LIMIT=5;
+export function foldKanbanCols(cols,expandedKeys,limit){
+  const n=limit>0?limit:KANBAN_COL_LIMIT;
+  const open=expandedKeys||new Set();
+  return cols.map(c=>{
+    const foldable=c.tasks.length>n;
+    const collapsed=foldable&&!open.has(c.key);
+    return {...c,foldable,collapsed,shown:collapsed?c.tasks.slice(0,n):c.tasks.slice(),
+      hiddenCnt:collapsed?c.tasks.length-n:0};
+  });
+}
+/* 跨列改完状态后，被挪走的那条若落在折叠区里就看不见人了：返回它的列 key 让壳展开，否则空串 */
+export function kanbanFoldReveal(cols,taskId,limit){
+  const n=limit>0?limit:KANBAN_COL_LIMIT;
+  const col=cols.find(c=>c.tasks.some(t=>t.id===taskId));
+  if(!col||col.tasks.length<=n)return "";
+  return col.tasks.findIndex(t=>t.id===taskId)>=n?col.key:"";
+}

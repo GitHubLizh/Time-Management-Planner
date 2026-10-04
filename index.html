@@ -462,6 +462,9 @@ table.data input[type=range]{width:90px;accent-color:var(--accent)}
 .kanban-card .kc-edit svg{width:12px;height:12px}
 .kanban-card:hover .kc-edit{opacity:.9}
 .kanban-card .kc-meta{font-size:.68rem;color:var(--muted);margin-top:4px;display:flex;gap:6px;flex-wrap:wrap}
+/* 列内超过 5 条时的展开/收起：虚线描边弱化处理，别和任务卡抢视觉 */
+.kanban-fold{display:block;width:100%;margin-top:2px;padding:7px 0;border:1.5px dashed var(--line);border-radius:8px;background:transparent;color:var(--muted);font-size:.74rem}
+.kanban-fold:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
 .kanban-switch{display:flex;gap:6px;margin-bottom:12px}
 .kanban-switch button{border:1.5px solid var(--line);background:var(--card);border-radius:999px;padding:5px 14px;font-size:.78rem;color:var(--ink)}
 .kanban-switch button.active{background:var(--ink);color:var(--paper);border-color:var(--ink)}
