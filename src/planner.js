@@ -1,6 +1,6 @@
 import { pinyin } from "pinyin-pro";
 import { TYPES, PRIO_NAMES, STATUS_NAMES, RECUR_RULES, DOW_NAMES, GOAL_LEVELS } from "./core/constants.js";
-import { pad, fmt, parseD, addDays, monthRange, fmtDur } from "./core/dates.js";
+import { pad, fmt, stampText, parseD, addDays, monthRange, fmtDur } from "./core/dates.js";
 import { today as TODAY } from "./core/clock.js";
 import { CN_HOLIDAY, HOLIDAY_SRC, SOLAR_FESTIVALS, refreshHolidayYear, lunarOf } from "./core/holidays.js";
 import { setPinyinImpl, filterSummary } from "./core/filters.js";
@@ -449,10 +449,10 @@ function overdueBadge(t,compact){
   const d=overdueDays(t);
   return `<span class="badge-overdue" title="截止 ${esc(t.end)} 未完成，已逾期 ${d} 天">${I.flag}${compact?"逾期"+d+"天":"逾期 "+d+" 天"}</span>`;
 }
-/* ---------- 迟完留痕：完成时刻晚于截止日期。doneAt 只由 syncDoneAt 写，课程与循环任务被清空故不参与 ---------- */
+/* ---------- 迟完留痕：完成日晚于截止日期（比较在 core 里降到日粒度）。doneAt 只由 syncDoneAt 写，课程与循环任务被清空故不参与 ---------- */
 function lateBadge(t){
   const d=lateDays(t);
-  return `<span class="badge-late" title="截止 ${esc(t.end)} · 实际 ${esc(t.doneAt)} 完成 · 迟 ${d} 天">${I.flag}迟 ${d} 天完成</span>`;
+  return `<span class="badge-late" title="截止 ${esc(t.end)} · 实际 ${esc(stampText(t.doneAt))} 完成 · 迟 ${d} 天">${I.flag}迟 ${d} 天完成</span>`;
 }
 /* ---------- 循环条目的呈现：徽标 + 本月次数（数字全部来自 doneOn 与循环窗口，可点开 title 核对） ---------- */
 function recurBadge(t){

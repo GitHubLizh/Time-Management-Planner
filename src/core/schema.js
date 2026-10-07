@@ -1,6 +1,6 @@
 /* 状态模型与工厂：业务数据 + 视图偏好都在同一个对象里，键的归属见 STATE_VIEW_KEYS。
    `state` 是本模块的可变单例，importer 通过 ESM live binding 观察它的重新赋值。零 DOM。 */
-import { fmt, parseD } from "./dates.js";
+import { fmt, dayOf, parseD } from "./dates.js";
 import { today } from "./clock.js";
 import { RECUR_RULES } from "./constants.js";
 
@@ -38,7 +38,7 @@ export function normalize(s){
     if(t.fixed){
       if(!t.course){
         t.recur={freq:"daily",days:[],mday:1};
-        if(t.status==="done"){const d=t.doneAt||t.end;t.doneOn={[d]:d};}
+        if(t.status==="done"){const d=dayOf(t.doneAt)||t.end;t.doneOn={[d]:d};} // doneOn 按日索引，秒级 doneAt 得先降回日
       }
       delete t.fixed;
     }

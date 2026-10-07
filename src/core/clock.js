@@ -1,4 +1,4 @@
-import { fmt, parseD } from "./dates.js";
+import { fmt, fmtStamp, parseD } from "./dates.js";
 
 /* 核心层的"今天"：跨零点后逾期判定与今日高亮要自愈，所以它是可变的，但只就地改、不换引用。
    浏览器壳的定时器与小程序的 onShow 都通过 advanceClock 推进它，core 自身不启任何计时器。 */
@@ -22,3 +22,9 @@ export function setToday(ds) {
   today.setFullYear(d.getFullYear(), d.getMonth(), d.getDate());
   today.setHours(0, 0, 0, 0);
 }
+
+/* 到秒的"此刻"。不复用 today —— 它被刻意归零到 00:00（逾期与迟完都按整天算，依赖这点），
+   从它身上取时刻永远得到 T00:00:00。默认走真实墙上时钟，setNowStamp 与 setToday 同为测试锚点。 */
+let _nowStamp = null;
+export function setNowStamp(s) { _nowStamp = s || null; }
+export function nowStamp() { return _nowStamp || fmtStamp(new Date()); }

@@ -1,7 +1,7 @@
 /* 取数与统计口径：所有"从 state 到列表/数字"的查询。零 DOM。
    统计口径：循环任务不进完成率、逾期、迟完与看板，只在日/周/月历按实例呈现。 */
-import { fmt, parseD, addDays, mondayOf, pad } from "./dates.js";
-import { today } from "./clock.js";
+import { fmt, dayOf, stampText, parseD, addDays, mondayOf, pad } from "./dates.js";
+import { today, nowStamp } from "./clock.js";
 import { TYPES } from "./constants.js";
 import { state } from "./schema.js";
 import { occursOn, occDone, statsPool } from "./recur.js";
@@ -40,14 +40,15 @@ export function splitId(id){ // 实例 id → 定义 + 日期；定义 id 原样
 export function isOverdue(t){return !t.course&&!t.recur&&t.status!=="done"&&!!t.end&&t.end<fmt(today);}
 export function overdueDays(t){return Math.round((today-parseD(t.end))/86400000);}
 export function overdueList(pool){return (pool||state.tasks).filter(isOverdue);}
-/* ---------- 迟完留痕：完成时刻晚于截止日期。doneAt 只由 syncDoneAt 写，课程与循环任务被清空故不参与 ---------- */
-export function syncDoneAt(t){t.doneAt=(t.status==="done"&&!t.course&&!t.recur)?(t.doneAt||fmt(today)):"";}
-export function isLateDone(t){return !t.recur&&t.status==="done"&&!!t.doneAt&&t.doneAt>t.end;}
-export function lateDays(t){return Math.round((parseD(t.doneAt)-parseD(t.end))/86400000);}
+/* ---------- 迟完留痕：完成日晚于截止日期（比较降到日粒度，doneAt 到秒也不改变口径）。
+   doneAt 只由 syncDoneAt 写，课程与循环任务被清空故不参与 ---------- */
+export function syncDoneAt(t){t.doneAt=(t.status==="done"&&!t.course&&!t.recur)?(t.doneAt||nowStamp()):"";}
+export function isLateDone(t){return !t.recur&&t.status==="done"&&!!t.doneAt&&dayOf(t.doneAt)>t.end;}
+export function lateDays(t){return Math.round((parseD(dayOf(t.doneAt))-parseD(t.end))/86400000);}
 export function lateList(pool){return (pool||state.tasks).filter(isLateDone);}
 /* 已完成卡片的完成时间呈现文案：看板已完成列就是按 doneAt 排的，把排序键写出来人才对得上号。
    缺记录也要出一条（课程卡被 syncDoneAt 清空、早于该字段的历史数据），否则它落在列尾看着像排错了。 */
-export function doneAtText(t){return t.status!=="done"?"":t.doneAt?`完成 ${t.doneAt}`:"完成时间未记录";}
+export function doneAtText(t){return t.status!=="done"?"":t.doneAt?`完成 ${stampText(t.doneAt)}`:"完成时间未记录";}
 export function statsOf(list){
   const s={total:list.length,done:0,doing:0,todo:0,q:{1:0,2:0,3:0,4:0},types:{}};
   list.forEach(t=>{s[t.status]++;s.q[t.priority]++;s.types[t.type]=(s.types[t.type]||0)+1;});
@@ -164,7 +165,8 @@ export function monthlyRates(y,pool){
 }
 
 /* 看板：分列与循环任务计数 */
-/* 已完成列按完成时间倒序（最近完成的排最前）。doneAt 是 day 粒度字符串，ISO 格式直接比字典序即可；
+/* 已完成列按完成时间倒序（最近完成的排最前）。doneAt 是定长的 ISO 串（到秒），直接比字典序即可；
+   历史 day-only 值不带时间后缀，同日之内自然排到所有有时刻的后面。
    没有完成时间的（课程卡被 syncDoneAt 清空、或早于该字段的历史数据）一律排到最后，同值之间维持原有先后。
    倒序不是为了好看：列内折叠只露前 5 张，排完序露出的就正好是最近完成的 5 条。 */
 function byDoneAtDesc(a,b){const x=a.doneAt||"",y=b.doneAt||"";return x<y?1:x>y?-1:0;}

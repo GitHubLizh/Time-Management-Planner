@@ -17,6 +17,7 @@ const seed=await seedFromCoreImports(src);
 
 // core 的时钟锚到夹具那天：core 是在 Node 里真实加载的，拿不到 vm 的假 Date
 coreClock.setToday("2026-09-18");
+coreClock.setNowStamp("2026-09-18T12:00:00"); // 秒级锚对齐 vm 里 TestDate 的默认 12:00
 
 function makeEl(){
   const el={
@@ -194,6 +195,13 @@ eq("今天截止未完成 ≠ 逾期（边界）",ov({end:"2026-09-18",status:"t
 eq("明天截止 ≠ 逾期",ov({end:"2026-09-19",status:"todo"}),false);
 eq("已过截止但已完成 ≠ 逾期",ov({end:"2026-09-10",status:"done"}),false);
 eq("课程不计逾期",ov({end:"2026-09-10",status:"todo",course:true}),false);
+/* 迟完口径守住按日。doneAt 升到秒后，字典序里 "2026-09-18T23:59:59" > "2026-09-18"，
+   当天完成会被 isLateDone 误判成迟完、按时率凭空掉一截 —— 这四条就是那层守卫。 */
+const lt=o=>F("isLateDone")(Object.assign({},F("taskById")("t8"),{status:"done",recur:null},o));
+eq("截止日当天深夜完成 ≠ 迟完（秒级边界）",lt({end:"2026-09-18",doneAt:"2026-09-18T23:59:59"}),false);
+eq("次日零点过一秒 = 迟完",lt({end:"2026-09-18",doneAt:"2026-09-19T00:00:01"}),true);
+eq("历史 day-only 值口径不变",lt({end:"2026-09-18",doneAt:"2026-09-18"}),false);
+eq("lateDays 对秒级值仍按整天算",F("lateDays")(Object.assign({},F("taskById")("t8"),{status:"done",end:"2026-09-16",doneAt:"2026-09-18T08:30:00"})),2);
 eq("存量数据被补齐 doneOn",Object.keys(F("taskById")("t7").doneOn),["2026-09-17"]);
 eq("recurText 每天",F("recurText")(F("taskById")("t7")),"每天");
 eq("recurText 每周",F("recurText")({recur:{freq:"weekly",days:[1,3],mday:1}}),"每一、三");
@@ -213,10 +221,14 @@ const old={tasks:[
   {id:"t1",title:"早起",status:"done",start:"2026-09-01",end:"2026-09-18",fixed:true,doneAt:"2026-09-10"},
   {id:"t2",title:"普通",status:"todo",start:"2026-09-01",end:"2026-09-05",fixed:false},
   {id:"t3",title:"旧课",course:true,dow:3,fixed:true,start:"2026-09-01",end:"2026-09-30"},
+  {id:"t4",title:"秒级旧习惯",status:"done",start:"2026-09-01",end:"2026-09-18",fixed:true,doneAt:"2026-09-12T08:30:00"},
 ],goals:{weekly:["字符串目标"],monthly:[],yearly:[],reviews:[]}};
 const m=F("normalize")(JSON.parse(JSON.stringify(old)));
 eq("fixed→daily",m.tasks[0].recur,{freq:"daily",days:[],mday:1});
 eq("已完成的旧习惯只补实际完成那 1 条",Object.keys(m.tasks[0].doneOn),["2026-09-10"]);
+/* doneOn 的键是"哪天打的卡"，occDone 按日查 —— 秒级 doneAt 原样搬进去会把这天查丢 */
+eq("秒级 doneAt 迁移出的打卡键降到日粒度",Object.keys(m.tasks[3].doneOn),["2026-09-12"]);
+eq("打卡值同样日粒度，occDone 按日查得到",F("occDone")(m.tasks[3],"2026-09-12"),true);
 eq("fixed 字段已删",m.tasks[0].fixed,undefined);
 eq("非 fixed 不加 recur",m.tasks[1].recur,null);
 eq("课程不叠加循环",m.tasks[2].recur,null);
@@ -361,11 +373,24 @@ eq("排序只作用于列内副本，不动 state.tasks 数组顺序",ev("state.
 eq("桌面已完成列按此序渲染",idsIn(renders("renderKanban")),["d2","d5","d4","d1","d3"]);
 eq("已完成卡上写出排序依据的完成日",/完成 2026-09-18/.test(renders("renderKanban")),true);
 eq("无完成时间的写明未记录，不留白",/完成时间未记录/.test(renders("renderKanban")),true);
-eq("core：doneAtText 只在已完成上出文案",[F("doneAtText")(doneT("x","2026-09-18")),F("doneAtText")(doneT("y","")),F("doneAtText")(foldTask("z","todo"))],["完成 2026-09-18","完成时间未记录",""]);
+eq("core：doneAtText 秒级把 T 换成空格，历史 day-only 原样",
+  [F("doneAtText")(doneT("x","2026-09-18T12:00:05")),F("doneAtText")(doneT("w","2026-09-18")),F("doneAtText")(doneT("y","")),F("doneAtText")(foldTask("z","todo"))],
+  ["完成 2026-09-18 12:00:05","完成 2026-09-18","完成时间未记录",""]);
 F("setState")({...initialState,tasks:[foldTask("n1","todo"),foldTask("n2","doing"),doneT("n3","2026-09-17")]});
 eq("未完成的两张卡不带完成日",((renders("renderKanban").match(/完成 \d{4}-\d{2}-\d{2}/g)||[]).length),1);
 F("setState")({...initialState,tasks:[doneT("s1","2026-09-15"),doneT("s2","2026-09-15"),doneT("s3","2026-09-15")]});
 eq("同一天完成的多条维持原有先后",idsIn(renders("renderKanban")),["s1","s2","s3"]);
+/* 升秒级的动机就在这条：同一天完成的，从前只能靠数组顺序兜住，现在按时刻分先后 */
+F("setState")({...initialState,tasks:[doneT("m1","2026-09-18T09:30:00"),doneT("m2","2026-09-18T14:23:05"),doneT("m3","2026-09-18")]});
+eq("core：同一天按秒级时刻分先后，day-only 历史值落当日尾部",F("kanbanSplit")(F("filteredTasks")(),"status").cols[2].tasks.map(t=>t.id),["m2","m1","m3"]);
+eq("桌面已完成列也按此序铺卡",idsIn(renders("renderKanban")),["m2","m1","m3"]);
+/* 端到端一条链：勾选完成（syncDoneAt 取锚定时刻）→ 列内排序 → 卡上写出到秒 */
+F("setState")({...initialState,tasks:[foldTask("w1","doing")]});
+F("toggleTaskDone")(F("taskById")("w1"));
+eq("勾选完成后卡上写出到秒的完成时刻",/完成 2026-09-18 12:00:00/.test(renders("renderKanban")),true);
+/* 迟完徽标的 tooltip 也是给人看的，存储那个 T 不能原样吐出来 */
+F("setState")({...initialState,tasks:[Object.assign(doneT("l1","2026-09-20T08:30:00"),{end:"2026-09-18"})]});
+eq("迟完 tooltip 把完成时刻写成空格分隔",/title="截止 2026-09-18 · 实际 2026-09-20 08:30:00 完成 · 迟 2 天"/.test(renders("renderKanban")),true);
 F("setState")({...initialState,tasks:[doneT("e1","2026-09-11"),doneT("e2","2026-09-16"),doneT("e3","2026-09-12"),doneT("e4","2026-09-19"),doneT("e5","2026-09-13"),doneT("e6","2026-09-20")]});
 const doneFolded=renders("renderKanban");
 eq("折叠露出的正是最近完成的 5 条",idsIn(doneFolded),["e6","e4","e2","e5","e3"]);
@@ -478,7 +503,7 @@ const resetTasks=()=>F("setState")({tasks:baseTasks(),
 
 resetTasks();
 F("toggleTaskDone")(F("taskById")("a1"));
-eq("toggleTaskDone 完成即 progress=100 且写 doneAt",[F("taskById")("a1").status,F("taskById")("a1").progress,F("taskById")("a1").doneAt],["done",100,"2026-09-18"]);
+eq("toggleTaskDone 完成即 progress=100 且 doneAt 记到秒",[F("taskById")("a1").status,F("taskById")("a1").progress,F("taskById")("a1").doneAt],["done",100,"2026-09-18T12:00:00"]);
 F("toggleTaskDone")(F("taskById")("a1"));
 eq("toggleTaskDone 取消回 todo 且 progress 归零、doneAt 清空",[F("taskById")("a1").status,F("taskById")("a1").progress,F("taskById")("a1").doneAt],["todo",0,""]);
 
@@ -521,7 +546,7 @@ eq("取消循环时丢掉打卡痕迹",F("taskById")("a3").doneOn,{});
 F("saveTask")(null,{title:"新建",type:"工作项目",priority:3,status:"done",start:"2026-09-20",end:"2026-09-21"});
 const fresh=F("state").tasks[F("state").tasks.length-1];
 eq("新建走 mk 分配 id 并追加在末尾",/^t\d+$/.test(fresh.id)&&F("state").tasks.length===4,true);
-eq("doneAt 由 syncDoneAt 补写",fresh.doneAt,"2026-09-18");
+eq("doneAt 由 syncDoneAt 补写到秒",fresh.doneAt,"2026-09-18T12:00:00");
 eq("草稿规则：循环 + done 降级为 todo",F("applyTaskDraftRules")({recur:{freq:"daily",days:[],mday:1},status:"done",progress:100}).status,"todo");
 eq("草稿规则：非循环 done 补齐 progress",F("applyTaskDraftRules")({recur:null,status:"done",progress:40}).progress,100);
 eq("草稿规则：doing 不动 progress",F("applyTaskDraftRules")({recur:null,status:"doing",progress:40}).progress,40);
@@ -757,7 +782,7 @@ console.log("\n== 批量选择：条目渲染出复选框 ==");
   ev('bulkSel=new Set(["a","b","r@2026-09-18"]);bulkApplyDone()');
   eq("a 未完成→完成", F("taskById")("a").status, "done");
   eq("a 进度置 100", F("taskById")("a").progress, 100);
-  eq("a 记录完成日为今天", F("taskById")("a").doneAt, "2026-09-18");
+  eq("a 记录完成时刻到秒", F("taskById")("a").doneAt, "2026-09-18T12:00:00");
   eq("b 已完成→取消", F("taskById")("b").status, "todo");
   eq("取消完成后 doneAt 清空", F("taskById")("b").doneAt, "");
   eq("循环实例当天打卡", !!F("taskById")("r").doneOn["2026-09-18"], true);
