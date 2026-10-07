@@ -2,7 +2,7 @@
    done 与 progress 的联动仍走 core/mutations.applyKanbanDrop，与桌面同一条规则。
    列内超过 5 条折叠，点开才展开 —— 折叠态按分列模式各存一份，只活在内存里（不进 state，
    免得每点一次展开就往云端整包推一次），与桌面壳同一口径。 */
-import { kanbanSplit, foldKanbanCols, kanbanFoldReveal } from "../../core/selectors.js";
+import { kanbanSplit, foldKanbanCols, kanbanFoldReveal, doneAtText } from "../../core/selectors.js";
 import { filteredTasks } from "../../core/selectors.js";
 import { applyKanbanDrop } from "../../core/mutations.js";
 import { taskById } from "../../core/schema.js";
@@ -39,6 +39,7 @@ export function renderBoard(body, app) {
         <div style="display:flex;gap:8px;align-items:center">
           <span class="prio p${t.priority}" style="margin-top:0"></span>
           <div class="title" style="flex:1;min-width:0">${esc(t.title)}</div></div>
+        ${doneAtText(t) ? `<div style="font-size:.74rem;color:var(--muted);margin-top:4px">${esc(doneAtText(t))}</div>` : ""}
         <div style="display:flex;gap:6px;margin-top:8px">
           ${STATUSES.map(([k, n]) => `<button data-st="${k}" data-id="${t.id}"
             style="flex:1;min-height:44px;border:1.5px solid ${t.status === k ? "var(--accent)" : "var(--line)"};border-radius:8px;

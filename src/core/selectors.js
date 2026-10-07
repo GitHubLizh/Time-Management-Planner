@@ -45,6 +45,9 @@ export function syncDoneAt(t){t.doneAt=(t.status==="done"&&!t.course&&!t.recur)?
 export function isLateDone(t){return !t.recur&&t.status==="done"&&!!t.doneAt&&t.doneAt>t.end;}
 export function lateDays(t){return Math.round((parseD(t.doneAt)-parseD(t.end))/86400000);}
 export function lateList(pool){return (pool||state.tasks).filter(isLateDone);}
+/* 已完成卡片的完成时间呈现文案：看板已完成列就是按 doneAt 排的，把排序键写出来人才对得上号。
+   缺记录也要出一条（课程卡被 syncDoneAt 清空、早于该字段的历史数据），否则它落在列尾看着像排错了。 */
+export function doneAtText(t){return t.status!=="done"?"":t.doneAt?`完成 ${t.doneAt}`:"完成时间未记录";}
 export function statsOf(list){
   const s={total:list.length,done:0,doing:0,todo:0,q:{1:0,2:0,3:0,4:0},types:{}};
   list.forEach(t=>{s[t.status]++;s.q[t.priority]++;s.types[t.type]=(s.types[t.type]||0)+1;});
@@ -161,11 +164,18 @@ export function monthlyRates(y,pool){
 }
 
 /* 看板：分列与循环任务计数 */
+/* 已完成列按完成时间倒序（最近完成的排最前）。doneAt 是 day 粒度字符串，ISO 格式直接比字典序即可；
+   没有完成时间的（课程卡被 syncDoneAt 清空、或早于该字段的历史数据）一律排到最后，同值之间维持原有先后。
+   倒序不是为了好看：列内折叠只露前 5 张，排完序露出的就正好是最近完成的 5 条。 */
+function byDoneAtDesc(a,b){const x=a.doneAt||"",y=b.doneAt||"";return x<y?1:x>y?-1:0;}
 export function kanbanSplit(pool,mode){
   const cols=mode==="status"?[["todo","未开始"],["doing","进行中"],["done","已完成"]]:TYPES.map(t=>[t,t]);
   const plain=statsPool(pool);
-  return {cols:cols.map(([key,label])=>({key,label,tasks:plain.filter(t=>mode==="status"?t.status===key:t.type===key)})),
-    recurCount:pool.length-plain.length};
+  /* filter 出来的是新数组，就地 sort 不会动到 state.tasks 的顺序（数组顺序在别处是用户拖出来的） */
+  return {cols:cols.map(([key,label])=>{
+    const tasks=plain.filter(t=>mode==="status"?t.status===key:t.type===key);
+    return {key,label,tasks:mode==="status"&&key==="done"?tasks.sort(byDoneAtDesc):tasks};
+  }),recurCount:pool.length-plain.length};
 }
 
 /* 看板列内折叠：一列超过 KANBAN_COL_LIMIT 条时只露前若干张卡，其余等人点开，

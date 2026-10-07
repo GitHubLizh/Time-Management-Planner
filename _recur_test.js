@@ -350,6 +350,30 @@ eq("展开态按分列模式各存一份",/展开其余 1 条/.test(renders("ren
 F("setState")({...initialState,kanbanMode:"type",tasks:sevenWork});
 F("toggleKanbanFold")("工作项目"); // 收回 type 那份展开态，别带进后面的断言
 F("setState")(initialState);
+
+console.log("\n== 看板已完成列按完成时间倒序 ==");
+const idsIn=h=>(h.match(/data-id="([\w-]+)"/g)||[]).map(s=>s.slice(9,-1));
+const doneT=(id,doneAt)=>Object.assign(foldTask(id,"done"),{doneAt,progress:100});
+const doneMix=[doneT("d1","2026-09-10"),doneT("d2","2026-09-18"),doneT("d3",""),doneT("d4","2026-09-15"),doneT("d5","2026-09-17")];
+F("setState")({...initialState,tasks:doneMix.slice()});
+eq("core：完成时间新的在前，无完成时间的殿后",F("kanbanSplit")(F("filteredTasks")(),"status").cols[2].tasks.map(t=>t.id),["d2","d5","d4","d1","d3"]);
+eq("排序只作用于列内副本，不动 state.tasks 数组顺序",ev("state.tasks.map(t=>t.id).join(',')"),"d1,d2,d3,d4,d5");
+eq("桌面已完成列按此序渲染",idsIn(renders("renderKanban")),["d2","d5","d4","d1","d3"]);
+eq("已完成卡上写出排序依据的完成日",/完成 2026-09-18/.test(renders("renderKanban")),true);
+eq("无完成时间的写明未记录，不留白",/完成时间未记录/.test(renders("renderKanban")),true);
+eq("core：doneAtText 只在已完成上出文案",[F("doneAtText")(doneT("x","2026-09-18")),F("doneAtText")(doneT("y","")),F("doneAtText")(foldTask("z","todo"))],["完成 2026-09-18","完成时间未记录",""]);
+F("setState")({...initialState,tasks:[foldTask("n1","todo"),foldTask("n2","doing"),doneT("n3","2026-09-17")]});
+eq("未完成的两张卡不带完成日",((renders("renderKanban").match(/完成 \d{4}-\d{2}-\d{2}/g)||[]).length),1);
+F("setState")({...initialState,tasks:[doneT("s1","2026-09-15"),doneT("s2","2026-09-15"),doneT("s3","2026-09-15")]});
+eq("同一天完成的多条维持原有先后",idsIn(renders("renderKanban")),["s1","s2","s3"]);
+F("setState")({...initialState,tasks:[doneT("e1","2026-09-11"),doneT("e2","2026-09-16"),doneT("e3","2026-09-12"),doneT("e4","2026-09-19"),doneT("e5","2026-09-13"),doneT("e6","2026-09-20")]});
+const doneFolded=renders("renderKanban");
+eq("折叠露出的正是最近完成的 5 条",idsIn(doneFolded),["e6","e4","e2","e5","e3"]);
+eq("收起的是最旧那条",!/data-id="e1"/.test(doneFolded)&&/展开其余 1 条/.test(doneFolded),true);
+F("setState")({...initialState,kanbanMode:"type",tasks:doneMix.slice()});
+eq("按类型分列不重排（那一维没有完成时间可言）",idsIn(renders("renderKanban")),["d1","d2","d3","d4","d5"]);
+F("setState")(initialState);
+
 const yHTML=renders("renderYear");
 eq("年视图标注 1 条循环未计入",/1 条循环未计入/.test(yHTML),true);
 renders("renderSchedule");

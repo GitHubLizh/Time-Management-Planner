@@ -6,7 +6,7 @@ import { CN_HOLIDAY, HOLIDAY_SRC, SOLAR_FESTIVALS, refreshHolidayYear, lunarOf }
 import { setPinyinImpl, filterSummary } from "./core/filters.js";
 import { recurText, occurrencesBetween, occDone, toggleOcc, recurDoneIn, recurStreak, statsPool } from "./core/recur.js";
 import { state, setState, defaultState, mk, taskById } from "./core/schema.js";
-import { filteredTasks, tasksOn, splitId, isOverdue, overdueDays, overdueList, syncDoneAt, isLateDone, lateDays, lateList, statsOf, hasActiveFilter,
+import { filteredTasks, tasksOn, splitId, isOverdue, overdueDays, overdueList, syncDoneAt, isLateDone, lateDays, lateList, doneAtText, statsOf, hasActiveFilter,
   scheduleGrid, dayGroups, weekDaysOf, miniCalGrid, weekColumns, dailyCounts, monthTasksOf, monthGrid, progressWeeks, monthSpanFilter, ganttCells, yearSplit, yearMonthDays, monthSlice, monthlyRates, kanbanSplit, foldKanbanCols, kanbanFoldReveal } from "./core/selectors.js";
 import { goalsOf, goalLevel, goalById, goalTasks, goalVisibleThisWeek, taskGoal, goalProgress } from "./core/goals.js";
 import { authErrorMessage, isPasswordFailure, createPasswordFailGuard, PASSWORD_FAIL_LIMIT } from "./core/auth.js";
@@ -1131,7 +1131,7 @@ function renderKanban(){
       ${list.map(t=>`<div class="kanban-card" draggable="true" data-id="${t.id}">
         <button class="icon-btn kc-edit" draggable="false" title="编辑任务">${I.edit}</button>
         <div class="kc-title"><span class="prio-dot p${t.priority}" style="margin:0 4px 0 0"></span>${esc(t.title)}</div>
-        <div class="kc-meta"><span class="tag outline">${esc(t.type)}</span><span>${t.end} ${isOverdue(t)?"已截止":"截止"}</span>${isOverdue(t)?overdueBadge(t):""}${isLateDone(t)?lateBadge(t):""}${t.course?`<span>${esc(t.timeSlot)}</span>`:""}</div>
+        <div class="kc-meta"><span class="tag outline">${esc(t.type)}</span><span>${t.end} ${isOverdue(t)?"已截止":"截止"}</span>${doneAtText(t)?`<span>${esc(doneAtText(t))}</span>`:""}${isOverdue(t)?overdueBadge(t):""}${isLateDone(t)?lateBadge(t):""}${t.course?`<span>${esc(t.timeSlot)}</span>`:""}</div>
         <div class="progress-bar"><i style="width:${t.progress}%"></i></div>
       </div>`).join("")||'<div style="font-size:.7rem;color:var(--muted);text-align:center;padding:14px 0">拖拽任务到此列</div>'}${col.foldable?`
       <button class="kanban-fold" data-kfold="${esc(key)}" aria-expanded="${col.collapsed?"false":"true"}">${col.collapsed?`展开其余 ${col.hiddenCnt} 条`:"收起"}</button>`:""}
