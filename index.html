@@ -494,6 +494,16 @@ table.data input[type=range]{width:90px;accent-color:var(--accent)}
 .section-title{font-size:1.05rem;margin:20px 0 12px;display:flex;align-items:center;gap:8px}
 .section-title::after{content:"";flex:1;height:1px;background:var(--line)}
 .empty-tip{font-size:.78rem;color:var(--muted);text-align:center;padding:18px 0;border:1.5px dashed var(--line);border-radius:8px}
+
+/* 回收站：条目是"已删掉的任务快照"，标题压灰、卡片走奶油底，与活着的列表一眼分开 */
+nav.views .nav-count{font-style:normal;font-size:.68rem;font-weight:700;background:var(--accent-soft);color:var(--accent);border-radius:999px;padding:1px 7px}
+nav.views button.active .nav-count{background:var(--paper);color:var(--ink)}
+.trash-note{font-size:.74rem;color:var(--muted);line-height:1.7;margin-bottom:12px}
+.trash-list{margin-bottom:12px}
+.trash-item{background:var(--cream)}
+.trash-item .t-title{color:var(--muted)}
+.trash-item .t-acts{align-items:flex-start;padding-top:2px}
+.trash-at{color:var(--accent)}
 canvas.chart{width:100%;height:170px}
 .deco-line{height:1px;background:repeating-linear-gradient(90deg,var(--line) 0 8px,transparent 8px 14px);margin:14px 0}
 
@@ -629,6 +639,7 @@ canvas.chart{width:100%;height:170px}
   <section class="view" id="view-mprogress"></section>
   <section class="view" id="view-year"></section>
   <section class="view" id="view-kanban"></section>
+  <section class="view" id="view-trash"></section>
 </main>
 
 <!-- 任务编辑弹窗 -->

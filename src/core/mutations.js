@@ -2,7 +2,8 @@
    不碰 localStorage、不碰 DOM、不调 renderAll —— 持久化与重绘由壳在调用后自己做。
    视图态（如目标展开集合 expandedGoals）也不进 core：需要它的地方通过返回值
    告知壳"该展开哪个"，由壳自己维护。 */
-import { state, taskById, mk, newGoalId } from "./schema.js";
+import { state, taskById, mk, newGoalId, newTrashId, pruneTrash } from "./schema.js";
+import { nowStamp } from "./clock.js";
 import { syncDoneAt, splitId } from "./selectors.js";
 import { toggleOcc } from "./recur.js";
 import { goalById, goalLevel, goalsOf } from "./goals.js";
@@ -22,6 +23,22 @@ export function duplicateTask(src){
   return t;
 }
 
+/* ---------- 回收站 ----------
+   删除不是"从数组里拿掉"，而是"搬进回收站"：快照整条留底（含 doneOn 打卡记录、循环规则、
+   归属目标），恢复时原样放回，用户看到的还是删掉那一刻的那条任务。
+   浮条撤销与回收站恢复是两条独立退路：撤销会把条目从回收站里收回（否则同一条会出现两次），
+   回收站恢复则按删除时记下的下标插回原位。 */
+function archive(snap,idx){
+  const e={tid:newTrashId(),idx:Math.max(0,idx),task:snap,deletedAt:nowStamp()};
+  state.trash.push(e);
+  pruneTrash(state); // 保留期与条数上限就地生效，界面上的条数永远等于真正落盘的
+  return e;
+}
+function dropEntry(tid){
+  const i=state.trash.findIndex(e=>e.tid===tid);
+  if(i>=0)state.trash.splice(i,1);
+}
+
 /* ---------- 删除单条：返回撤销数据，壳自己决定浮条文案与时长 ---------- */
 export function deleteTask(id){
   const t=taskById(id);if(!t)return null;
@@ -29,8 +46,9 @@ export function deleteTask(id){
   const snap=JSON.parse(JSON.stringify(t));
   const occCount=Object.keys(snap.doneOn||{}).length;
   state.tasks=state.tasks.filter(x=>x.id!==id);
-  return {title:snap.title,isRecur:!!snap.recur,occCount,
-    undo(){state.tasks.splice(Math.min(i,state.tasks.length),0,snap);}};
+  const e=archive(snap,i);
+  return {title:snap.title,isRecur:!!snap.recur,occCount,tid:e.tid,
+    undo(){dropEntry(e.tid);state.tasks.splice(Math.min(i,state.tasks.length),0,snap);}};
 }
 
 /* ---------- 批量：逐条走与单条相同的翻转语义（循环实例只作用于当天） ---------- */
@@ -63,9 +81,46 @@ export function bulkDelete(keys){
   }).filter(Boolean).sort((a,b)=>a.i-b.i);
   const gone=new Set(snaps.map(s=>s.snap.id));
   state.tasks=state.tasks.filter(t=>!gone.has(t.id));
-  return {count:snaps.length,undo(){
+  const tids=snaps.map(s=>archive(s.snap,s.i).tid); // 每条各留一份回收站条目，撤销时一并收回
+  return {count:snaps.length,tids,undo(){
+    tids.forEach(dropEntry);
     for(const s of snaps)state.tasks.splice(Math.min(s.i,state.tasks.length),0,s.snap);
   }};
+}
+
+/* ---------- 从回收站取回 ----------
+   返回 {title, tid, undo} 供壳做浮条；tid 不存在返回 null（条目已被别的设备拿走）。
+   列表里已经有同 id 的那条时不塞第二个：id 唯一与数组顺序是别处依赖的不变量，
+   此时条目本就是多余的，收走它并交出撤销 —— 按钮按下去一定要有反馈，不能"点了没反应"。 */
+export function restoreTask(tid){
+  const at=state.trash.findIndex(e=>e.tid===tid);
+  if(at<0)return null;
+  const e=state.trash[at];
+  const back=()=>{state.trash.splice(Math.min(at,state.trash.length),0,e);pruneTrash(state);};
+  state.trash.splice(at,1);
+  if(taskById(e.task.id))return {conflict:true,title:e.task.title,tid,undo:back};
+  const snap=JSON.parse(JSON.stringify(e.task));
+  state.tasks.splice(Math.min(e.idx,state.tasks.length),0,snap);
+  return {title:snap.title,id:snap.id,tid,
+    undo(){
+      state.tasks=state.tasks.filter(t=>t.id!==snap.id);
+      back();
+    }};
+}
+/* 彻底删除：条目出回收站，快照不再交给 tasks。撤销只把条目放回，任务仍留在被丢的地方。 */
+export function purgeTrashEntry(tid){
+  const at=state.trash.findIndex(e=>e.tid===tid);
+  if(at<0)return null;
+  const e=state.trash[at];
+  state.trash.splice(at,1);
+  return {title:e.task.title,tid,undo(){state.trash.splice(Math.min(at,state.trash.length),0,e);pruneTrash(state);}};
+}
+/* 清空回收站：整批拿走，撤销原样放回（撤销里再走一次 pruneTrash，超上限的按新旧顺序该淘汰的淘汰） */
+export function emptyTrash(){
+  if(!state.trash.length)return null;
+  const moved=state.trash.slice();
+  state.trash=[];
+  return {count:moved.length,undo(){state.trash=moved.concat(state.trash);pruneTrash(state);}};
 }
 
 /* ---------- 新增 / 编辑任务 ---------- */

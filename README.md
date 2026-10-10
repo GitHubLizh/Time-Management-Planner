@@ -19,6 +19,7 @@
 | 月进度 | 当月任务进度表 + 按周甘特图 |
 | 年 | 12 个月迷你月历、年度目标、每月复盘、年度统计与图表 |
 | 看板 | 桌面拖拽跨列流转状态；移动端用卡片内三态分段控件；已完成列按完成时间倒序；一列超过 5 条折叠成"展开其余 N 条" |
+| 回收站 | 删除的任务整条留底，逐条 恢复 / 彻底删除，底部另有 清空回收站；导航按钮挂条数徽标 |
 
 **任务与目标**
 
@@ -46,6 +47,9 @@
 - **排序键要看得见**：卡片 meta 上写出"完成 2026-09-18 14:23:05"（存储的 `T` 在呈现时换成空格），缺记录写"完成时间未记录"而不是留白（否则那条落在列尾看着像排错了）。文案出自 `core/selectors.doneAtText`，判据是 `status==="done"` 而不是"哪一列"，所以按状态、按类型两种分法下的已完成卡片都带这一条，桌面与移动共用同一句措辞。
 - **秒级只进排序和留痕，不动判定口径**：`isLateDone` / `lateDays` 与月进度的按时完成率都先把 `doneAt` 降到日粒度（`dates.dayOf`）再和截止日比——任务只有截止日、没有截止时刻，所以"截止日当天完成"仍不算迟完。写入侧也是两条时钟：`clock.today` 被刻意归零到 00:00（逾期按整天算依赖这点），完成时刻另走 `clock.nowStamp()` 取真实墙上时钟，测试用 `setNowStamp` 锚定。
 - 删除任务、删除目标与批量操作后出现 6 秒撤销浮条，可精确还原。
+- **回收站是删除的第二条退路**（`state.trash`）。删任务不再只是从数组里拿掉：`core/mutations.deleteTask` / `bulkDelete` 把整条快照（含 `doneOn` 打卡记录、循环规则、归属目标）归档成 `{tid, idx, task, deletedAt}`，`idx` 是它删除时在 `state.tasks` 里的下标。恢复走 `restoreTask(tid)` → 按 `idx` 插回原位；浮条撤销与回收站恢复互不打架，撤销会顺手把刚生成的条目收回（`dropEntry`），否则同一条会出现两次。`purgeTrashEntry` 与 `emptyTrash` 只动回收站、不把任务塞回列表，三者都交出 `undo` 给壳的浮条，所以全程没有 confirm 弹窗。列表里已有同 id 时不再塞第二个（id 唯一与数组顺序是别处依赖的不变量），此时收走多余条目并给"本就还在列表里"的提示——按钮按下去一定要有反馈。
+- **保留策略有两个数**（`core/constants.TRASH_KEEP_DAYS=30` / `TRASH_LIMIT=100`）：删除满 30 天的条目淘汰，攒满 100 条时最早的那条先淘汰。上限不是随手取的：状态整包 JSON 要经 `POST .../rest/v1/planner_states` 的 keepalive 兜底请求上行，那条路的体积预算是 64KB（见 `planner.js` 的 `flushRemoteSync` 与 `function/index.ts` 的 `MAX_BODY`），一条快照约 300 字节，100 条约 30KB，给任务本体留出余量。淘汰在 `schema.pruneTrash` 一处执行，装载（`normalize`）与每次回收站写操作都走它，所以屏幕上看到的条数永远等于真正落盘的条数。
+- 回收站不进任何统计与取数：`filteredTasks` / `tasksOn` / 看板与完成率都只读 `state.tasks`，删掉的条目不会污染数字。
 - 批量选择（完成切换 / 删除）只在"当天这一屏"提供：桌面是日视图三张列表，移动端是今日 tab；选中态是临时视图态，不进 state、切走即退出。
 - 手机 / 平板走独立的移动壳（底部 4 tab、显式控件而非拖拽），详见[移动端与平板](#移动端与平板)。
 
@@ -83,9 +87,11 @@ function/index.ts 同域反向代理（Edge 函数）
 | 今日 | 日/周 两种看法 + 日期切换；日=今日任务（打卡 / 进度 / 批量选择）/ 每日习惯 / 今天的课，周=七天单列 |
 | 目标 | 周 / 月 / 年三档目标与关联任务进度，可折叠 |
 | 看板 | 按状态或类型分列，卡片内直接改状态；已完成列按完成时间倒序；一列超过 5 条折叠，点开才铺全 |
-| 我的 | 概览数字、目标进度、搜索筛选、主题、账号与切桌面 |
+| 我的 | 概览数字、目标进度、每月复盘、回收站、搜索筛选、主题、账号与切桌面 |
 
 **"今日"页的 日/周 分段控件**：日视图是"这一天的事"，周视图回答"这周哪天有安排"。周视图**不是桌面七列并排的缩略**，而是七天分组单列——每天一段段头（日号 + 周几 + 完成数），条目压成单行（去掉"分类 · 进度"那行 meta，字号仍是正文 `.95rem`，靠去行而不是缩字把整周从 2248px 降到 1617px）。周视图里只能打卡，不给 `⋯`：编辑、排序、删除回到日视图做，批量选择也只属于日视图（与桌面同口径）。段头与副标题的计数单位是**项次**——一条任务跨本周 3 天就计 3 次，写清单位免得被读成"7 条完成 / 22 条任务"。看法存 `state.todayMode`（与 `kanbanMode` 同类的持久化视图偏好）。
+
+**回收站收在"我的"里**（`src/mobile/trash.js`）：卡片按删除时间倒序列出条目，一行给"恢复"与 `×`（彻底删除），底部给"清空回收站（N 条）"，超过 5 条先折叠成"展开其余 N 条"（`showAll` 是模块内的显示态，不进 `state`，与看板折叠同一口径）。三个动作调的是 `core/mutations` 里与桌面同一批函数，反馈走 `app.toast` 的 6 秒撤销。删除任务的浮条文案尾部写着"撤销没了还能去 我的→回收站 找回"，免得用户只认得那 6 秒。
 
 **筛选收在"我的"里，不铺开**。六个条件（年 / 月 / 优先级 / 状态 / 分类 / 时间段）加逾期、迟完两个开关放在一个动作面板里（`src/mobile/filters.js`），"我的"卡片只留关键词输入和一条写着当前生效条件的按钮。理由是小屏一屏塞六个下拉直接撞"一屏只给一个主操作区"。
 - 摘要文案不在移动壳再写一份：`core/filters.filterSummary()` 出片段数组，桌面 banner 与移动胶囊共用，顺序即桌面 banner 原有顺序（关键词 → 年 → 月 → 优先级 → 状态 → 分类 → 时段 → 逾期 → 迟完）。
@@ -101,6 +107,7 @@ function/index.ts 同域反向代理（Edge 函数）
 | 条目 | 面板项 | 落到 |
 | --- | --- | --- |
 | 今日任务 | 编辑 / 复制（循环任务不给）/ 上移 / 下移 / 取消关联 / 删除 | `moveTask`、`duplicateTask`、`applyDrop({type:"unlink"})`、`deleteTask` |
+| 回收站条目（我的页） | 恢复 / 彻底删除 / 清空回收站 | `restoreTask`、`purgeTrashEntry`、`emptyTrash` |
 | 目标 | 编辑 / 上移 / 下移 / 删除，每档底部另有"新增×目标" | `moveGoal`、`saveGoal`、`deleteGoal` |
 
 - **复制比桌面多走一步**：`duplicateTask` 出副本后立即把编辑面板开在副本上（手机上重填字段成本太高），原任务不受影响；这一条路径同时覆盖桌面弹窗里"另存为副本"的用法。
@@ -226,13 +233,13 @@ npm run dev
 ## 测试
 
 ```bash
-npm test          # 374 条断言：node _recur_test.js src/planner.js
+npm test          # 427 条断言：node _recur_test.js src/planner.js
 npm run golden    # 渲染金样本：16 段 innerHTML 落盘 _golden.json（已 gitignore）
 ```
 
-**`_recur_test.js`** 用 `vm` 在桩化 DOM 中执行桌面壳，但断言打到的是 **core 的真实实现**：`_core_seed.mjs` 从壳的 import 语句反推需要哪些符号（含别名，如 `deleteTask as deleteTaskData`），并用访问器挂进 vm 全局 —— 必须用访问器而不是取值，否则 ESM 的 live binding 会被冻结成快照，`state` 被 `setState` 重新赋值后壳读不到。覆盖范围：重复展开引擎、节假日口径、日历字标与底色、拼音检索、逾期/迟完边界、看板列内折叠（`foldKanbanCols` 的前 5 切分与 `kanbanFoldReveal` 的"被挪走的卡片是否落在折叠区"，以及壳里点展开/收起后的实际渲染）、看板已完成列的完成时间倒序（core 与桌面渲染出的卡片序列、`state.tasks` 未被就地排序动过、同日完成的稳定性、同一天按秒级时刻分先后、无完成时间殿后、与折叠配合后露出的恰是最近 5 条，以及勾选完成 → 排序 → 卡上写出到秒这条端到端链）、`doneAt` 升到秒后迟完仍按日的四条边界守卫、写操作与撤销、同步与装载决策、认证文案与密码连错计数分支（`createPasswordFailGuard` 的 storage 由壳注入，core 不认识 `localStorage`，所以能在 Node 里拿假对象连冷却和降级一起测）、`index.html` 与 JS 之间的选择器 id 对账；壳里的纯函数也直接 `import` 进来断言（如移动壳 `editor.js` 的 `goalOptions` / `goalOptionValue`，它不碰 DOM，所以能脱离浏览器测）。
+**`_recur_test.js`** 用 `vm` 在桩化 DOM 中执行桌面壳，但断言打到的是 **core 的真实实现**：`_core_seed.mjs` 从壳的 import 语句反推需要哪些符号（含别名，如 `deleteTask as deleteTaskData`），并用访问器挂进 vm 全局 —— 必须用访问器而不是取值，否则 ESM 的 live binding 会被冻结成快照，`state` 被 `setState` 重新赋值后壳读不到。覆盖范围：重复展开引擎、节假日口径、日历字标与底色、拼音检索、逾期/迟完边界、看板列内折叠（`foldKanbanCols` 的前 5 切分与 `kanbanFoldReveal` 的"被挪走的卡片是否落在折叠区"，以及壳里点展开/收起后的实际渲染）、看板已完成列的完成时间倒序（core 与桌面渲染出的卡片序列、`state.tasks` 未被就地排序动过、同日完成的稳定性、同一天按秒级时刻分先后、无完成时间殿后、与折叠配合后露出的恰是最近 5 条，以及勾选完成 → 排序 → 卡上写出到秒这条端到端链）、`doneAt` 升到秒后迟完仍按日的四条边界守卫、写操作与撤销、**回收站**（归档是否整条、浮条撤销会不会留下重复条目、按 `idx` 插回原位、同 id 冲突不塞第二个、彻底删除与清空各自的作用域、装载时丢弃脏条目、30 天与 100 条两头淘汰、`filteredTasks` 取数不含回收站，以及桌面 `renderTrash`/`buildNav` 与移动 `trashCardHTML` 实际渲染出的片段）、同步与装载决策、认证文案与密码连错计数分支（`createPasswordFailGuard` 的 storage 由壳注入，core 不认识 `localStorage`，所以能在 Node 里拿假对象连冷却和降级一起测）、`index.html` 与 JS 之间的选择器 id 对账；壳里的纯函数也直接 `import` 进来断言（如移动壳 `editor.js` 的 `goalOptions` / `goalOptionValue`，它不碰 DOM，所以能脱离浏览器测）。
 
-**`npm run golden`** 是重构期间的等价门：固定夹具（含循环 / 课程 / 逾期 / 迟完 / 跨周跨月 / 带成员目标）渲染 7 视图 × 2 看板模式 + 导航 + banner，共 16 段 `innerHTML` 落盘，改动前后逐字节比对。它的价值已被验证过一次：把 `yearSplit` 返回的 `recurCount` 在壳里按 `recurCnt` 解构（漏了重命名）导致年视图少渲染 107 字符，`npm test` 全绿也没发现，金样本一眼可见。
+**`npm run golden`** 是重构期间的等价门：固定夹具（含循环 / 课程 / 逾期 / 迟完 / 跨周跨月 / 带成员目标 / 三条回收站条目）渲染 8 视图 × 2 看板模式 + 导航 + banner，共 18 段 `innerHTML` 落盘，改动前后逐字节比对。它的价值已被验证过一次：把 `yearSplit` 返回的 `recurCount` 在壳里按 `recurCnt` 解构（漏了重命名）导致年视图少渲染 107 字符，`npm test` 全绿也没发现，金样本一眼可见。
 
 **断言有效性用变异测试抽查过**，不是只看"跑绿了"：删掉 `occursOn` 的月末钳位 → 3 条变红；把 `isOverdue` 的 `end<today` 改成 `<=` → 当时全绿，说明缺边界断言，补了 5 条后该变异体被杀死。改坏 `deleteTask` 撤销的插回索引 → 立刻变红。
 
@@ -262,7 +269,7 @@ src/core/                       业务核心，零 DOM（12 个模块 / 见架�
 src/endpoint.js                 Supabase 基址决策（代理 or 直连）
 src/main.js                     桌面装配：客户端创建与环境变量守卫
 src/planner.js                  桌面壳：视图模板、事件绑定、拖拽、传输
-src/mobile/                     移动壳：boot / shell / login / editor / session / tabs / ui-pref / styles.css / views
+src/mobile/                     移动壳：boot / shell / login / editor / session / tabs / trash / ui-pref / styles.css / views
 function/index.ts               同域反向代理（Edge 函数）
 supabase/migrations/            建表 + RLS 策略
 _recur_test.js / _core_seed.mjs 断言与 core 符号装载

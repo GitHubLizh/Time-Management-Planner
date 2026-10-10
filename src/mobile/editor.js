@@ -161,7 +161,7 @@ export function removeTaskWithUndo(app, id) {
   const r = deleteTask(id);
   if (!r) return;
   app.commit();
-  app.toast(`已删除「${r.title}」${r.isRecur && r.occCount ? `（含 ${r.occCount} 条打卡记录）` : ""}`, () => { r.undo(); app.commit(); });
+  app.toast(`已删除「${r.title}」${r.isRecur && r.occCount ? `（含 ${r.occCount} 条打卡记录）` : ""} · 撤销没了还能去 我的→回收站 找回`, () => { r.undo(); app.commit(); });
 }
 
 export function removeGoalWithUndo(app, id) {

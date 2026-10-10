@@ -7,6 +7,7 @@ import { pinyin } from "pinyin-pro";
 import * as coreClock from "./src/core/clock.js";
 import { seedFromCoreImports } from "./_core_seed.mjs";
 import { goalOptions, goalOptionValue } from "./src/mobile/editor.js"; // 移动壳里的纯函数，不需要 DOM
+import { trashCardHTML } from "./src/mobile/trash.js"; // 同样只拼字符串，绑定部分留给浏览器实测
 
 const plannerPath=process.argv[2];
 const html=fs.readFileSync(process.argv[3]||path.resolve(path.dirname(plannerPath),"..","index.html"),"utf8");
@@ -552,6 +553,133 @@ eq("草稿规则：非循环 done 补齐 progress",F("applyTaskDraftRules")({rec
 eq("草稿规则：doing 不动 progress",F("applyTaskDraftRules")({recur:null,status:"doing",progress:40}).progress,40);
 eq("progress 属表单口径，core 不代为改写",fresh.progress,0);
 
+/* ================= 回收站（删除归档 → 选择性恢复） =================
+   删除不再是"从数组里拿掉"：整条快照进 state.trash 等着被挑出来恢复。
+   这里钉四件事——归档内容完整（含打卡记录与循环规则）、浮条撤销与回收站恢复两条退路不互相留残、
+   彻底删除与清空只动回收站、保留策略（30 天 / 100 条）真的在淘汰条目。 */
+console.log("\n== 回收站：删除即归档 ==");
+resetTasks();
+const tDel=F("deleteTask")("a2");
+eq("回收站多出一条",F("state").trash.length,1);
+eq("条目记下删除时刻与删除时的下标",[F("state").trash[0].deletedAt,F("state").trash[0].idx],["2026-09-18T12:00:00",1]);
+eq("deleteTask 交出 tid 供壳定位条目",[tDel.tid,F("state").trash[0].tid],[F("state").trash[0].tid,F("state").trash[0].tid]);
+eq("快照是整条任务",[...((e)=>[e.task.title,e.task.status,e.task.doneAt,e.task.type])(F("state").trash[0])],["任务二","done","2026-09-09","生活居家"]);
+tDel.undo();
+eq("浮条撤销把条目一并收回（同一条不出现两次）",[F("state").tasks.map(x=>x.id),F("state").trash.length],[["a1","a2","a3"],0]);
+resetTasks();
+F("deleteTask")("a3");
+eq("循环任务的打卡记录随快照进回收站",Object.keys(F("state").trash[0].task.doneOn),["2026-09-17"]);
+eq("快照与列表里那条不再是同一个对象",F("state").trash[0].task===F("taskById")("a3"),false);
+resetTasks();
+const tb=F("bulkDelete")(["a1","a2","a3@2026-09-18"]);
+eq("批量删除逐条归档",F("state").trash.map(e=>e.task.id),["a1","a2","a3"]);
+eq("批量删除交出全部 tid",tb.tids.length,3);
+tb.undo();
+eq("批量撤销同样清空回收站",[F("state").tasks.map(x=>x.id),F("state").trash.length],[["a1","a2","a3"],0]);
+
+console.log("\n== 回收站：选择性恢复 ==");
+resetTasks();
+const e1=F("deleteTask")("a1"),e3=F("deleteTask")("a3"); // a1 原在下标 0，a3 原在下标 2
+eq("两条都进回收站",[F("state").tasks.map(t=>t.id),F("state").trash.length],[["a2"],2]);
+const rr=F("restoreTask")(e3.tid);
+eq("只恢复挑中的那条，按删除时的下标插回",[F("state").tasks.map(t=>t.id),F("state").trash.length],[["a2","a3"],1]);
+eq("恢复返回标题与 tid 供浮条文案",[rr.title,rr.tid],["每日喝水",e3.tid]);
+eq("恢复回来的是整条快照",[F("taskById")("a3").recur.freq,Object.keys(F("taskById")("a3").doneOn)],["daily",["2026-09-17"]]);
+rr.undo();
+eq("撤销恢复=任务回到列表外、条目回到回收站",[F("state").tasks.map(t=>t.id),F("state").trash.length],[["a2"],2]);
+eq("tid 不存在时返回 null",F("restoreTask")("nope"),null);
+resetTasks();
+const c1=F("deleteTask")("a2");
+/* 造一条同 id 的在场：拿条目自己的快照复制一份（a2 本体已被删掉，taskById 取不到） */
+F("state").tasks.push(JSON.parse(JSON.stringify(F("state").trash[0].task)));
+const cr=F("restoreTask")(c1.tid);
+eq("列表里已有同 id 时不塞第二个",[cr.conflict,cr.title],[true,"任务二"]);
+eq("冲突时多余的条目被收走",[F("state").trash.length,F("state").tasks.length],[0,3]);
+cr.undo();
+eq("冲突撤销把条目放回回收站",F("state").trash.length,1);
+
+console.log("\n== 回收站：彻底删除与清空 ==");
+resetTasks();
+const p1=F("deleteTask")("a1"),p2=F("deleteTask")("a2");
+const pr=F("purgeTrashEntry")(p1.tid);
+eq("彻底删除只动回收站，任务不返回列表",[F("state").trash.map(e=>e.tid),F("state").tasks.length],[[p2.tid],1]);
+eq("彻底删除返回标题供浮条",[pr.title,pr.tid],["任务一",p1.tid]);
+pr.undo();
+eq("撤销把条目放回原位",F("state").trash.map(e=>e.tid),[p1.tid,p2.tid]);
+const et=F("emptyTrash")();
+eq("清空拿走全部",[et.count,F("state").trash.length],[2,0]);
+eq("清空后任务仍不在列表",F("state").tasks.length,1);
+et.undo();
+eq("撤销清空放回整批条目",F("state").trash.map(e=>e.tid),[p1.tid,p2.tid]);
+eq("空回收站清空返回 null",((()=>{resetTasks();return F("emptyTrash")()})()),null);
+eq("没有条目时彻底删除返回 null",F("purgeTrashEntry")("nope"),null);
+
+console.log("\n== 回收站：装载钳位与保留策略 ==");
+F("setState")({tasks:[],goals:{weekly:[],monthly:[],yearly:[],reviews:[]}});
+eq("旧状态没有 trash 字段时补空数组",F("state").trash,[]);
+F("setState")({tasks:[{id:"z1",title:"仅测试",start:"2026-09-01",end:"2026-09-02"}],trash:[
+  {tid:"x9",idx:3,task:{title:"有快照",type:"工作项目",priority:1,status:"todo",start:"2026-09-01",end:"2026-09-02",doneOn:{}},deletedAt:"2026-09-17T09:00:00"},
+  {tid:"x8",task:{title:"缺删除时刻"},deletedAt:""},       // 算不出保留期 → 整条丢
+  {task:{title:"缺 tid"},deletedAt:"2026-09-17T09:00:00"},  // 补一个 id，否则没法定位
+  {tid:"x7",task:null,deletedAt:"2026-09-17T09:00:00"},     // 没东西可恢复 → 整条丢
+  "不是对象"]});
+eq("脏条目只剩两条能渲染的",[F("state").trash.length,F("state").trash[1].task.title],[2,"缺 tid"]);
+eq("缺 tid 的补上 x 前缀、缺 idx 的按 0",[/^x\d+$/.test(F("state").trash[1].tid),F("state").trash[1].idx],[true,0]);
+eq("快照里没有 doneOn 时补空对象",F("state").trash[1].task.doneOn,{});
+const hm=n=>String(Math.floor(n/60)).padStart(2,"0")+":"+String(n%60).padStart(2,"0");
+F("setState")({tasks:[{id:"z1",title:"仅测试",start:"2026-09-01",end:"2026-09-02"}],trash:[
+  {tid:"x1",idx:0,task:{title:"三十一天前",start:"2026-09-01",end:"2026-09-02",doneOn:{}},deletedAt:"2026-08-18T12:00:00"},
+  {tid:"x2",idx:0,task:{title:"第 30 天",start:"2026-09-01",end:"2026-09-02",doneOn:{}},deletedAt:"2026-08-19T12:00:00"},
+  {tid:"x3",idx:0,task:{title:"还在期内",start:"2026-09-01",end:"2026-09-02",doneOn:{}},deletedAt:"2026-09-18T12:00:00"}]});
+eq("超过 30 天的淘汰、第 30 天当天仍留",F("state").trash.map(e=>e.task.title),["第 30 天","还在期内"]);
+F("setState")({tasks:[{id:"z1",title:"仅测试",start:"2026-09-01",end:"2026-09-02"}],trash:Array.from({length:105},(_,i)=>({tid:"x"+i,
+  idx:0,task:{title:"第"+i+"条",start:"2026-09-01",end:"2026-09-02",doneOn:{}},deletedAt:`2026-09-19T${hm(i)}:00`}))});
+eq("攒满 100 条上限只留最近的那批",[F("state").trash.length,F("state").trash[0].tid,F("state").trash[99].tid],[100,"x5","x104"]);
+resetTasks();
+F("state").trash.push({tid:"xold",idx:0,task:{title:"过期条目",start:"2026-09-01",end:"2026-09-02",doneOn:{}},deletedAt:"2026-08-01T12:00:00"});
+F("deleteTask")("a1"); // 写操作也走一次淘汰，界面上的条数才等于真正落盘的
+eq("写操作时同样淘汰过期条目",F("state").trash.map(e=>e.task.title),["任务一"]);
+eq("回收站不进任务取数：筛选结果里没有它",[F("filteredTasks")().map(t=>t.id).includes("a1"),F("state").tasks.length],[false,2]);
+
+console.log("\n== 回收站：取数与呈现口径 ==");
+resetTasks();
+F("deleteTask")("a1");F("deleteTask")("a3");
+eq("列表按删除时间倒序（新的在前，同刻按入库次序）",F("trashList")().map(e=>e.task.title),["任务一","每日喝水"]);
+eq("策略文案带着两个数的出处",[/30 天/.test(F("trashPolicyText")()),/100 条/.test(F("trashPolicyText")())],[true,true]);
+eq("摘要交出壳要显示的字段",((x)=>[x.title,x.status,x.statusKey,x.isRecur,x.isCourse,x.type])(F("trashExcerpt")(F("state").trash[1])),["每日喝水","未开始","todo",true,false,"饮食健康"]);
+eq("摘要里的打卡条数取自快照",F("trashExcerpt")(F("state").trash[1]).occCount,1);
+
+console.log("\n== 桌面壳：回收站视图与导航徽标 ==");
+resetTasks();
+ev('state.view="trash";renderTrash()'); // 先渲染一次，桩 DOM 里才存在 #view-trash 这个元素
+eq("空回收站给占位提示",/empty-tip/.test(els["#view-trash"].innerHTML),true);
+ev('removeTaskWithUndo("a2")'); // 走壳那条路径：core 删除 + save + 重绘 + 浮条
+eq("壳的删除路径既归档又弹浮条",[F("state").trash.length,els["#undoMsg"]?"有浮条":"无浮条"],[1,"有浮条"]);
+eq("视图列出条目与恢复按钮",/data-tid=/.test(els["#view-trash"].innerHTML)&&/data-tact="restore"/.test(els["#view-trash"].innerHTML)&&/任务二/.test(els["#view-trash"].innerHTML),true);
+eq("条目写着删除时刻",/删除于 2026-09-18 12:00:00/.test(els["#view-trash"].innerHTML),true);
+eq("有条目时给清空按钮",/data-tact="empty"/.test(els["#view-trash"].innerHTML),true);
+ev('buildNav()');
+eq("导航给回收站挂条数徽标",/data-view="trash"[^>]*>[\s\S]*?回收站[\s\S]*?nav-count">1</.test(els["#viewNav"].innerHTML),true);
+eq("删除浮条文案把回收站指给人看",els["#undoMsg"].textContent.includes("回收站"),true);
+resetTasks();
+
+console.log("\n== 移动壳：回收站卡片（我的页）==");
+eq("空回收站给空态文案",/m-empty/.test(trashCardHTML({state:F("state")})),true);
+F("deleteTask")("a1");F("deleteTask")("a3");
+const mCard=trashCardHTML({state:F("state")});
+eq("卡片列出条目并给恢复按钮",/data-tid=/.test(mCard)&&/>恢复<\/button>/.test(mCard),true);
+eq("行内写着删除时刻与彻底删除",/删除于 2026-09-18 12:00:00/.test(mCard)&&/data-tact="purge"/.test(mCard),true);
+eq("两条不到折叠阈值，不出展开按钮",/data-tfold/.test(mCard),false);
+F("setState")({tasks:Array.from({length:6},(_,i)=>({id:"m"+i,title:"条"+i,type:"工作项目",priority:2,status:"todo",start:"2026-09-01",end:"2026-09-02",
+  progress:0,plannedTime:10,actualTime:0,course:false,room:"",teacher:"",dow:null,timeSlot:"",goalId:"",note:"",doneAt:"",recur:null,doneOn:{}})),
+  goals:{weekly:[],monthly:[],yearly:[],reviews:[]},filters:{keyword:"",year:"",month:"",prio:"",status:"",type:"",slot:""},selDate:"2026-09-18"});
+for(let i=0;i<6;i++)F("deleteTask")("m"+i);
+const bigCard=trashCardHTML({state:F("state")});
+eq("超过 5 条先折叠并给条数",/data-tfold="1"[\s\S]*?展开其余 1 条/.test(bigCard),true);
+eq("卡片有清空的出口",/data-tempty="1"/.test(bigCard),true);
+eq("底部写明保留策略的两个数",[/30 天/.test(bigCard),/100 条/.test(bigCard)],[true,true]);
+resetTasks();
+
 resetTasks();
 const rLink=F("applyDrop")({kind:"task",id:"a1"},{type:"link",gid:"g2"});
 eq("link 落点写 goalId 并要求展开",[F("taskById")("a1").goalId,rLink.autoExpandGid,rLink.applied],["g2","g2",true]);
@@ -817,6 +945,34 @@ console.log("\n== 批量选择：条目渲染出复选框 ==");
   ev('bulkMode=true;bulkSel.clear();bulkApplyDone();bulkApplyDelete()');
   eq("空选择不改任务数组", ids(), "a,b,c,r,k");
   eq("空选择不弹提示", ctx.__alert, undefined);
+}
+
+console.log("\n== core 符号引用对账（桩 DOM 把 core 导出整份挂成全局名，漏 import 只在浏览器里炸）==");
+{
+  /* _recur_test / _golden_render 都在 vm 里跑壳，而 _core_seed 把 core 各模块的**全部导出**按原名挂进了全局，
+     于是壳里"用了一个 core 函数却没写 import"在桩里照样能跑，浏览器里却是 ReferenceError，
+     整个视图渲染成空白（回收站视图踩过这一条：trashPolicyText）。这里按每个壳文件自己的 import 表对账。 */
+  const coreNames=new Set(Object.keys(seed));
+  const files=["./src/planner.js",...fs.readdirSync("src/mobile",{recursive:true}).filter(f=>f.endsWith(".js")).map(f=>"./src/mobile/"+f)];
+  const offenders=[];
+  for(const f of files){
+    /* 注释里的同名词不算调用（editor.js 的表头就写着"字段口径对齐 core/schema.js 的 mk()"），
+       定义式的 `name(args) {` 也不算（对象方法 deleteTask(id) { … } 与 core 的同名导出无关）。 */
+    const code=fs.readFileSync(f,"utf8").replace(/\/\*[\s\S]*?\*\//g," ").replace(/\/\/[^\n]*/g," ");
+    const imported=new Set();
+    for(const m of code.matchAll(/import\s*\{([^}"']*)\}\s*from\s*"[^"]+";/g))
+      for(const raw of m[1].split(",")){
+        const s=raw.trim();if(!s)continue;
+        const [orig,alias]=s.split(/\s+as\s+/).map(x=>x.trim());
+        imported.add(alias||orig);
+      }
+    const declared=new Set([...code.matchAll(/(?:function|const|let|var)\s+([A-Za-z_$][\w$]*)/g)].map(m=>m[1]));
+    for(const m of code.matchAll(/(?<![\w$.])([A-Za-z_$][\w$]*)\s*\(([^()]*)\)(?!\s*\{)/g)){
+      const n=m[1];
+      if(coreNames.has(n)&&!imported.has(n)&&!declared.has(n))offenders.push(f+" → "+n);
+    }
+  }
+  eq("壳里调到的每个 core 函数都在该文件的 import 表上（或该文件自己声明了同名函数）",[...new Set(offenders)],[]);
 }
 
 console.log("\n== id 选择器对账（桩 DOM 不会因 id 不存在而抛错，只能靠静态比对）==");

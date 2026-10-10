@@ -1,4 +1,4 @@
-// 金样本抓取器：在桩 DOM 里用固定数据渲染七个视图，把 innerHTML 落盘。
+// 金样本抓取器：在桩 DOM 里用固定数据渲染八个视图，把 innerHTML 落盘。
 // 用途：分组几何下沉到 core/selectors.js 前后各跑一次，逐字节 diff 证明输出等价。
 // 用法：node _golden_render.mjs <输出文件名>
 import fs from "node:fs";
@@ -69,9 +69,15 @@ const fixture = {
     yearly:[{id:"g4",title:"年度学习"}],
     reviews:[{year:2026,month:8,note:"八月复盘内容"},{year:2026,month:9,note:""}],
   },
+  /* 回收站夹具：一条循环任务（带打卡记录，验"循环 · N 条打卡"那一段）+ 一条课程 + 一条单次已完成 */
+  trash:[
+    {tid:"x1",idx:1,task:{id:"t9",title:"背单词",type:"学习成长",priority:3,status:"todo",start:"2026-09-01",end:"2026-09-30",progress:0,plannedTime:15,actualTime:0,course:false,room:"",teacher:"",dow:null,timeSlot:"",goalId:"g1",note:"",doneAt:"",recur:{freq:"daily",days:[],mday:1},doneOn:{"2026-09-15":"2026-09-15","2026-09-16":"2026-09-16"}},deletedAt:"2026-09-17T10:30:00"},
+    {tid:"x2",idx:6,task:{id:"t10",title:"高级算法课",type:"学习成长",priority:3,status:"todo",start:"2026-09-01",end:"2026-12-31",progress:0,plannedTime:100,actualTime:0,course:true,room:"教3-201",teacher:"王老师",dow:2,timeSlot:"10:00-11:40",goalId:"",note:"",doneAt:"",recur:null,doneOn:{}},deletedAt:"2026-09-18T09:05:00"},
+    {tid:"x3",idx:3,task:{id:"t11",title:"体检报告",type:"生活居家",priority:2,status:"done",start:"2026-09-01",end:"2026-09-10",progress:100,plannedTime:30,actualTime:45,course:false,room:"",teacher:"",dow:null,timeSlot:"",goalId:"g2",note:"",doneAt:"2026-09-12",recur:null,doneOn:{}},deletedAt:"2026-09-16T18:40:00"},
+  ],
 };
 
-const views = ["schedule","day","week","month","mprogress","year","kanban"];
+const views = ["schedule","day","week","month","mprogress","year","kanban","trash"];
 const result = {};
 for (const mode of ["status","type"]) {
   for (const v of views) {

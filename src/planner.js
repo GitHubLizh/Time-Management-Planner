@@ -7,10 +7,10 @@ import { setPinyinImpl, filterSummary } from "./core/filters.js";
 import { recurText, occurrencesBetween, occDone, toggleOcc, recurDoneIn, recurStreak, statsPool } from "./core/recur.js";
 import { state, setState, defaultState, mk, taskById } from "./core/schema.js";
 import { filteredTasks, tasksOn, splitId, isOverdue, overdueDays, overdueList, syncDoneAt, isLateDone, lateDays, lateList, doneAtText, statsOf, hasActiveFilter,
-  scheduleGrid, dayGroups, weekDaysOf, miniCalGrid, weekColumns, dailyCounts, monthTasksOf, monthGrid, progressWeeks, monthSpanFilter, ganttCells, yearSplit, yearMonthDays, monthSlice, monthlyRates, kanbanSplit, foldKanbanCols, kanbanFoldReveal } from "./core/selectors.js";
+  scheduleGrid, dayGroups, weekDaysOf, miniCalGrid, weekColumns, dailyCounts, monthTasksOf, monthGrid, progressWeeks, monthSpanFilter, ganttCells, yearSplit, yearMonthDays, monthSlice, monthlyRates, kanbanSplit, foldKanbanCols, kanbanFoldReveal, trashList, trashExcerpt, trashPolicyText } from "./core/selectors.js";
 import { goalsOf, goalLevel, goalById, goalTasks, goalVisibleThisWeek, taskGoal, goalProgress } from "./core/goals.js";
 import { authErrorMessage, isPasswordFailure, createPasswordFailGuard, PASSWORD_FAIL_LIMIT } from "./core/auth.js";
-import { toggleTaskDone, applyTaskDraftRules, duplicateTask, deleteTask as deleteTaskData, bulkToggleDone, bulkDelete, saveTask, saveGoal, deleteGoal as deleteGoalData, saveReview, deleteReview as deleteReviewData, moveGoal, applyDrop, applyKanbanDrop } from "./core/mutations.js";
+import { toggleTaskDone, applyTaskDraftRules, duplicateTask, deleteTask as deleteTaskData, bulkToggleDone, bulkDelete, restoreTask, purgeTrashEntry, emptyTrash, saveTask, saveGoal, deleteGoal as deleteGoalData, saveReview, deleteReview as deleteReviewData, moveGoal, applyDrop, applyKanbanDrop } from "./core/mutations.js";
 import { remoteUpdatedAt, localUpdatedAt, ensureUpdatedAt, decidePush, decidePull, buildPushPayload, decideInitialSource } from "./core/sync.js";
 
 /* 拼音实现由壳注入：core 不认识 pinyin-pro，小程序可以换成别的或不注入（首字母降级为不匹配） */
@@ -18,7 +18,7 @@ setPinyinImpl(pinyin);
 
 /* ================= 常量与图标 ================= */
 const TYPE_COLORS=["#c98a5b","#7fa35a","#5a9a8f","#b58bb5","#8f86c9","#5b84c4","#c4a24a","#4a86c8","#c96f7a"];
-const VIEWS=[["schedule","课表"],["day","日"],["week","周"],["month","月历"],["mprogress","月进度"],["year","年"],["kanban","看板"]];
+const VIEWS=[["schedule","课表"],["day","日"],["week","周"],["month","月历"],["mprogress","月进度"],["year","年"],["kanban","看板"],["trash","回收站"]];
 const VIEW_ICONS={
   schedule:'<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M9 4v17M15 4v17"/>',
   day:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>',
@@ -26,7 +26,8 @@ const VIEW_ICONS={
   month:'<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/><circle cx="8" cy="14" r="1"/><circle cx="12" cy="14" r="1"/><circle cx="16" cy="14" r="1"/>',
   mprogress:'<path d="M3 20h18M6 20V10M11 20V4M16 20v-9M21 20v-5"/>',
   year:'<circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"/>',
-  kanban:'<rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="11" rx="1"/><rect x="17" y="4" width="5" height="14" rx="1"/>'
+  kanban:'<rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="11" rx="1"/><rect x="17" y="4" width="5" height="14" rx="1"/>',
+  trash:'<path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15"/><path d="M10 10v7M14 10v7"/>'
 };
 function icon(path,cls){return `<svg class="${cls||''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`;}
 const I={
@@ -476,8 +477,8 @@ $("#themeToggle").addEventListener("click",e=>{
   state.theme=b.dataset.theme;save();applyTheme();
 });
 function buildNav(){
-  $("#viewNav").innerHTML=VIEWS.map(([k,n])=>
-    `<button data-view="${k}" class="${state.view===k?'active':''}">${icon(VIEW_ICONS[k])}${n}</button>`).join("");
+  $("#viewNav").innerHTML=VIEWS.map(([k,n])=> // 回收站挂条数徽标：删了东西要一眼看到"还能去那儿找回来"
+    `<button data-view="${k}" class="${state.view===k?'active':''}">${icon(VIEW_ICONS[k])}${n}${k==="trash"&&state.trash.length?`<i class="nav-count">${state.trash.length}</i>`:""}</button>`).join("");
 }
 $("#viewNav").addEventListener("click",e=>{
   const b=e.target.closest("button");if(!b)return;
@@ -637,7 +638,7 @@ function bindTaskEvents(root){
       save();renderAll();
     }else if(act==="edit"){openModal(t.id);}
     else if(act==="copy"){duplicateTask(t);save();buildFilters();renderAll();}
-    else if(act==="del"){deleteTask(t.id);}
+    else if(act==="del"){removeTaskWithUndo(t.id);}
   });
 }
 /* ---------- 删除撤销：删除立即生效，底部浮条 6 秒内可撤销；期间再删则旧记录作废 ---------- */
@@ -651,10 +652,12 @@ function showUndo(msg,fn){
 }
 function hideUndo(){clearTimeout(undoTimer);pendingUndo=null;$("#undoBar").style.display="none";}
 $("#undoBtn").addEventListener("click",()=>{const fn=pendingUndo;hideUndo();if(fn)fn();});
-function deleteTask(id){
+/* 壳这条路径故意不叫 deleteTask：core 那层就叫 deleteTask，而测试桩把 core 导出整份挂成全局名，
+   壳里再同名就永远调不到这条路径（浮条与重绘都被跳过）。浏览器用的是模块作用域，看不出这层遮蔽。 */
+function removeTaskWithUndo(id){
   const r=deleteTaskData(id);if(!r)return; // core 已完成删除并交出撤销数据
   save();renderAll();
-  showUndo(`已删除任务「${r.title}」${r.isRecur&&r.occCount?`（含 ${r.occCount} 条打卡记录）`:""}`,()=>{
+  showUndo(`已删除任务「${r.title}」${r.isRecur&&r.occCount?`（含 ${r.occCount} 条打卡记录）`:""} · 撤销没了也能去回收站找回`,()=>{
     r.undo();save();renderAll();
   });
 }
@@ -1185,6 +1188,63 @@ function renderKanban(){
   });
 }
 
+/* ================= 回收站视图 =================
+   删除的整条快照在这里等主人：每条给"恢复"与"彻底删除"，顶部给"清空回收站"。
+   三个动作都立即生效、再由底部浮条 6 秒撤销（沿用删任务那套退路，不弹 confirm）。
+   数据进出都在 core/mutations 里，本函数只拼 HTML。 */
+function trashItemHTML(e){
+  const x=trashExcerpt(e);
+  return `<div class="task-item trash-item" data-tid="${esc(x.tid)}">
+    <span class="prio-dot p${x.priority}" title="${PRIO_NAMES[x.priority]}"></span>
+    <div class="t-body">
+      <div class="t-title">${esc(x.title)}</div>
+      <div class="t-meta">
+        <span class="tag">${esc(x.type)}</span>
+        <span class="status-pill st-${esc(x.statusKey)}">${esc(x.status)}</span>
+        ${x.isCourse?`<span class="tag outline">课程</span>`:""}
+        ${x.isRecur?`<span class="tag outline" title="循环规则与打卡记录都随快照留下，恢复后照旧逐日打卡">循环任务${x.occCount?` · ${x.occCount} 条打卡`:""}</span>`:""}
+        <span>${esc(x.start)}${x.end!==x.start?" ~ "+esc(x.end):""}</span>
+        <span class="trash-at">删除于 ${esc(stampText(x.deletedAt))}</span>
+      </div>
+    </div>
+    <div class="t-acts">
+      <button class="btn small" data-tact="restore" title="原样放回列表（撤销浮条 6 秒内可反悔）">恢复</button>
+      <button class="icon-btn" data-tact="purge" title="彻底删除，不再留在回收站">${I.trash}</button>
+    </div>
+  </div>`;
+}
+function renderTrash(){
+  const list=trashList();
+  $("#view-trash").innerHTML=`<div class="card"><h3>${I.trash}回收站<span class="tag" style="margin-left:auto" title="全库回收站条目数，不受筛选影响">${list.length} 条</span></h3>
+    <div class="trash-note">${esc(trashPolicyText())}</div>
+    ${list.length?`<div class="trash-list">${list.map(trashItemHTML).join("")}</div>
+      <button class="btn small ghost" data-tact="empty">清空回收站</button>`:'<div class="empty-tip">回收站是空的。删掉的任务会先进这里，随时可以挑一条恢复。</div>'}
+  </div>`;
+  $("#view-trash .card").addEventListener("click",e=>{ // 绑在每次重建的 .card 上：#view-trash 是常驻容器，绑它等于每次渲染叠一层监听器
+    const b=e.target.closest("[data-tact]");if(!b)return;
+    const act=b.dataset.tact;
+    if(act==="empty"){
+      const r=emptyTrash();if(!r)return;
+      save();renderAll();
+      showUndo(`已清空回收站（${r.count} 条）`,()=>{r.undo();save();renderAll();});
+      return;
+    }
+    const item=b.closest("[data-tid]");if(!item)return;
+    const tid=item.dataset.tid;
+    if(act==="restore"){
+      const r=restoreTask(tid);
+      if(!r){renderAll();return;} // 条目已经不在了（另一台设备刚处理过）：重绘即可
+      save();renderAll();
+      showUndo(r.conflict?`任务「${r.title}」本就还在列表里，多余的回收站条目已清除`:`已恢复任务「${r.title}」`,
+        ()=>{r.undo();save();renderAll();});
+    }else{
+      const r=purgeTrashEntry(tid);if(!r)return;
+      save();renderAll();
+      showUndo(`已彻底删除「${r.title}」`,()=>{r.undo();save();renderAll();});
+    }
+  });
+}
+
 /* ================= 任务编辑弹窗 ================= */
 let editingId=null;
 function openModal(id,asCourse){
@@ -1270,7 +1330,7 @@ $("#taskModal").addEventListener("keydown",e=>{
   e.preventDefault();
   $("#tSave").click();
 });
-$("#tDelete").addEventListener("click",()=>{$("#taskModal").classList.remove("show");deleteTask(editingId);});
+$("#tDelete").addEventListener("click",()=>{$("#taskModal").classList.remove("show");removeTaskWithUndo(editingId);});
 function formTaskData(){
   const isCourse=$("#tCourse").checked;
   const recur=isCourse?null:readRecur();
@@ -1456,7 +1516,7 @@ document.addEventListener("drop",e=>{
 });
 
 /* ================= 总渲染 ================= */
-const RENDER={schedule:renderSchedule,day:renderDay,week:renderWeek,month:renderMonth,mprogress:renderMProgress,year:renderYear,kanban:renderKanban};
+const RENDER={schedule:renderSchedule,day:renderDay,week:renderWeek,month:renderMonth,mprogress:renderMProgress,year:renderYear,kanban:renderKanban,trash:renderTrash};
 function renderAll(){
   buildNav();renderBanner();
   $$(".view").forEach(v=>v.classList.remove("active"));

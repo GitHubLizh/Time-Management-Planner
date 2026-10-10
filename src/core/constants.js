@@ -7,3 +7,9 @@ export const STATUS_NAMES={todo:"未开始",doing:"进行中",done:"已完成"};
 export const RECUR_RULES={daily:"每天重复",workday:"每个法定工作日（周一至周五，扣除节假日·含调休补班）",weekly:"每周固定几天",monthly:"每月固定一天"};
 export const DOW_NAMES=["周日","周一","周二","周三","周四","周五","周六"];
 export const GOAL_LEVELS=[["weekly","周"],["monthly","月"],["yearly","年"]];
+/* 回收站保留策略（两个数都要能对上真实约束，不是随手取的）：
+   - 条数上限 100：一条快照约 300 字节，100 条约 30KB。页面卸载时的 keepalive 兜底请求体上限是 64KB
+     （见 planner.js flushRemoteSync 与 function/index.ts 的 MAX_BODY），整包 state 要留足任务本体的余量。
+   - 保留 30 天：与"删除后还能反悔"的实际窗口匹配，超期即视为放弃。 */
+export const TRASH_LIMIT=100;
+export const TRASH_KEEP_DAYS=30;

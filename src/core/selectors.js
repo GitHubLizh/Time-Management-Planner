@@ -2,7 +2,7 @@
    统计口径：循环任务不进完成率、逾期、迟完与看板，只在日/周/月历按实例呈现。 */
 import { fmt, dayOf, stampText, parseD, addDays, mondayOf, pad } from "./dates.js";
 import { today, nowStamp } from "./clock.js";
-import { TYPES } from "./constants.js";
+import { TYPES, STATUS_NAMES, TRASH_LIMIT, TRASH_KEEP_DAYS } from "./constants.js";
 import { state } from "./schema.js";
 import { occursOn, occDone, statsPool } from "./recur.js";
 import { taskById } from "./schema.js";
@@ -201,4 +201,24 @@ export function kanbanFoldReveal(cols,taskId,limit){
   const col=cols.find(c=>c.tasks.some(t=>t.id===taskId));
   if(!col||col.tasks.length<=n)return "";
   return col.tasks.findIndex(t=>t.id===taskId)>=n?col.key:"";
+}
+
+/* ================= 回收站 ================= */
+/* 列表顺序：最近删掉的排最前。deletedAt 是到秒的定长串，字典序即时间序，
+   与看板已完成列同一口径（schema.pruneTrash 落盘时按升序排，这里反过来给人看）。 */
+export function trashList(pool){
+  return (pool===undefined?state.trash:pool).slice()
+    .sort((a,b)=>a.deletedAt<b.deletedAt?1:a.deletedAt>b.deletedAt?-1:0);
+}
+/* 回收站卡片上的字段：全部取自删除那一刻的快照，不另造指标。
+   壳拼 HTML 时用这一份，桌面与移动呈现的"这条原本是什么"因此一致。 */
+export function trashExcerpt(e){
+  const t=e.task;
+  return {tid:e.tid,title:t.title,type:t.type,statusKey:t.status,status:STATUS_NAMES[t.status]||t.status,
+    start:t.start,end:t.end,priority:t.priority,goalId:t.goalId,deletedAt:e.deletedAt,
+    isRecur:!!t.recur,isCourse:!!t.course,occCount:Object.keys(t.doneOn||{}).length};
+}
+/* 保留策略那句话桌面与移动共用一份口径，数字来源就是 constants 里那两个约束 */
+export function trashPolicyText(){
+  return `每条删除的任务整条留底（含打卡记录与循环规则），挑一条恢复即原样回到列表；保留 ${TRASH_KEEP_DAYS} 天，攒满 ${TRASH_LIMIT} 条后最早的那条先淘汰。`;
 }
