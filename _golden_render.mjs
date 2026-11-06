@@ -62,10 +62,11 @@ const fixture = {
     {id:"t6",title:"跑步",type:"运动健身",priority:2,status:"done",start:"2026-09-18",end:"2026-09-18",progress:100,plannedTime:30,actualTime:30,course:false,room:"",teacher:"",dow:null,timeSlot:"",goalId:"g3",note:"",doneAt:"2026-09-18",recur:null,doneOn:{}},
     {id:"t7",title:"法工作日值日",type:"工作项目",priority:1,status:"todo",start:"2026-09-01",end:"2026-10-31",progress:10,plannedTime:15,actualTime:0,course:false,room:"",teacher:"",dow:null,timeSlot:"",goalId:"g1",note:"",doneAt:"",recur:{freq:"workday",days:[],mday:1},doneOn:{"2026-09-25":"2026-09-25"}},
     {id:"t8",title:"读一本书",type:"学习成长",priority:2,status:"doing",start:"2026-08-01",end:"2026-09-30",progress:55,plannedTime:300,actualTime:180,course:false,room:"",teacher:"",dow:null,timeSlot:"",goalId:"g4",note:"",doneAt:"",recur:null,doneOn:{}},
+    {id:"t12",title:"上月收尾",type:"心灵成长",priority:3,status:"done",start:"2026-08-03",end:"2026-08-31",progress:100,plannedTime:30,actualTime:25,course:false,room:"",teacher:"",dow:null,timeSlot:"",goalId:"g5",note:"",doneAt:"2026-08-30T20:15:00",recur:null,doneOn:{}},
   ],
   goals:{
     weekly:[{id:"g1",title:"本周交付"},{id:"gX",title:"空目标"}],
-    monthly:[{id:"g2",title:"月度健康"},{id:"g3",title:"月度成长"}],
+    monthly:[{id:"g2",title:"月度健康"},{id:"g3",title:"月度成长"},{id:"g5",title:"早已收尾的上月目标"}],
     yearly:[{id:"g4",title:"年度学习"}],
     reviews:[{year:2026,month:8,note:"八月复盘内容"},{year:2026,month:9,note:""}],
   },

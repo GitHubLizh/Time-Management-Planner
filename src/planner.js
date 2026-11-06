@@ -8,7 +8,7 @@ import { recurText, occurrencesBetween, occDone, toggleOcc, recurDoneIn, recurSt
 import { state, setState, defaultState, mk, taskById } from "./core/schema.js";
 import { filteredTasks, tasksOn, splitId, isOverdue, overdueDays, overdueList, syncDoneAt, isLateDone, lateDays, lateList, doneAtText, statsOf, hasActiveFilter,
   scheduleGrid, dayGroups, weekDaysOf, miniCalGrid, weekColumns, dailyCounts, monthTasksOf, monthGrid, progressWeeks, monthSpanFilter, ganttCells, yearSplit, yearMonthDays, monthSlice, monthlyRates, kanbanSplit, foldKanbanCols, kanbanFoldReveal, trashList, trashExcerpt, trashPolicyText } from "./core/selectors.js";
-import { goalsOf, goalLevel, goalById, goalTasks, goalVisibleThisWeek, taskGoal, goalProgress } from "./core/goals.js";
+import { goalsOf, goalLevel, goalById, goalTasks, goalVisibleThisWeek, goalVisibleThisMonth, taskGoal, goalProgress } from "./core/goals.js";
 import { authErrorMessage, isPasswordFailure, createPasswordFailGuard, PASSWORD_FAIL_LIMIT } from "./core/auth.js";
 import { toggleTaskDone, applyTaskDraftRules, duplicateTask, deleteTask as deleteTaskData, bulkToggleDone, bulkDelete, restoreTask, purgeTrashEntry, emptyTrash, saveTask, saveGoal, deleteGoal as deleteGoalData, saveReview, deleteReview as deleteReviewData, moveGoal, applyDrop, applyKanbanDrop } from "./core/mutations.js";
 import { remoteUpdatedAt, localUpdatedAt, ensureUpdatedAt, decidePush, decidePull, buildPushPayload, decideInitialSource } from "./core/sync.js";
@@ -576,8 +576,10 @@ function goalMembersHTML(g){
       ${isOverdue(t)?overdueBadge(t,true):""}${isLateDone(t)?lateBadge(t):""}
       ${t.recur?"":`<span class="status-pill st-${t.status}">${STATUS_NAMES[t.status]}</span>`}</div>`).join("")||'<div class="gm-empty">该目标下暂无任务</div>'}</div>`;
 }
-function goalCardHTML(level,label,extraStyle,dates){
-  const list=dates?goalsOf(level).filter(g=>goalVisibleThisWeek(g,dates)):goalsOf(level);
+function goalCardHTML(level,label,extraStyle,dates,month){
+  let list=goalsOf(level);
+  if(dates)list=list.filter(g=>goalVisibleThisWeek(g,dates));
+  if(month)list=list.filter(g=>goalVisibleThisMonth(g,month.y,month.m)); // 月卡跟着所选月份走：翻旧月份仍能看到旧目标
   return `<div class="card" style="${extraStyle||''}"><h3>${I.flag}${label}<button class="btn small ghost" style="margin-left:auto" data-gadd="${level}">${I.plus.replace('class=""','style="width:13px;height:13px"')} 新增</button></h3>
     ${list.map(g=>goalItemHTML(g,level)+goalMembersHTML(g)).join("")||`<div class="goal-empty" data-gadd="${level}" title="新增${label}">${I.target}<span>暂无${label}</span><b>设定第一个目标</b></div>`}</div>`;
 }
@@ -815,7 +817,7 @@ function renderDay(){
     </div>
     <div>
       ${goalCardHTML("weekly","本周目标","margin-bottom:14px",weekDays)}
-      ${goalCardHTML("monthly","本月目标","margin-bottom:14px")}
+      ${goalCardHTML("monthly","本月目标","margin-bottom:14px",null,{y:selY,m:selM})}
       ${goalCardHTML("yearly","年度目标","")}
     </div>
   </div>`;
@@ -934,7 +936,7 @@ function renderMonth(){
       <div class="month-grid">${["一","二","三","四","五","六","日"].map(w=>`<div class="mh">周${w}</div>`).join("")}${cells}</div>
     </div>
     <div>
-      ${goalCardHTML("monthly","本月目标","margin-bottom:14px")}
+      ${goalCardHTML("monthly","本月目标","margin-bottom:14px",null,{y,m})}
       <div class="card" style="margin-bottom:14px"><h3>${I.chart}月度统计${recurCnt?`<span class="tag outline" style="margin-left:auto" title="本月有 ${recurCnt} 条循环任务定义，其每日实例不计入本页数字">${recurCnt} 条循环未计入</span>`:""}</h3>
         <div class="grid2" style="margin-bottom:10px">
           <div class="stat-box"><div class="stat-num">${s.total}</div><div class="stat-label">月度任务</div></div>

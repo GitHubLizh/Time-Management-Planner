@@ -723,6 +723,34 @@ F("taskById")("a1").goalId="g9"; // 撤销前已被手动改走
 F("deleteGoal")("g1").undo();
 eq("撤销不覆盖手动改走的关联",F("taskById")("a1").goalId,"g9");
 
+/* ================= 月卡可见性：以成员最晚截止日为基准，所选月份之前已收尾的让位 ================= */
+console.log("\n== 月卡可见性 ==");
+resetTasks();
+F("setState")({tasks:baseTasks().concat([
+    {id:"m1",title:"上月收尾",type:"工作项目",priority:2,status:"done",start:"2026-08-03",end:"2026-08-31",progress:100,plannedTime:10,actualTime:10,course:false,room:"",teacher:"",dow:null,timeSlot:"",goalId:"gm1",note:"",doneAt:"2026-08-30T20:15:00",recur:null,doneOn:{}},
+    {id:"m2",title:"跨到年底",type:"学习成长",priority:2,status:"doing",start:"2026-09-01",end:"2026-12-31",progress:20,plannedTime:60,actualTime:10,course:false,room:"",teacher:"",dow:null,timeSlot:"",goalId:"gm2",note:"",doneAt:"",recur:null,doneOn:{}},
+    {id:"m3",title:"九月循环",type:"饮食健康",priority:2,status:"todo",start:"2026-09-01",end:"2026-09-30",progress:0,plannedTime:5,actualTime:0,course:false,room:"",teacher:"",dow:null,timeSlot:"",goalId:"gm3",note:"",doneAt:"",recur:{freq:"daily",days:[],mday:1},doneOn:{}},
+  ]),
+  goals:{weekly:[],monthly:[{id:"gm1",title:"上月目标"},{id:"gm2",title:"跨月目标"},{id:"gm3",title:"循环目标"},{id:"gm4",title:"空目标"}],yearly:[],reviews:[]},
+  view:"day",theme:"e",filters:{keyword:"",year:"",month:"",prio:"",status:"",type:"",slot:""},
+  selDate:"2026-09-18",kanbanMode:"status",kanbanDragHintSeen:false,onlyOverdue:false,onlyLate:false});
+eq("上月的收尾目标在八月仍可见",F("goalVisibleThisMonth")(F("goalById")("gm1"),2026,7),true);
+eq("上月的收尾目标九月不再占用本月卡",F("goalVisibleThisMonth")(F("goalById")("gm1"),2026,8),false);
+eq("截止日跨到未来月份的目标继续显示",F("goalVisibleThisMonth")(F("goalById")("gm2"),2026,8),true);
+eq("截止日恰为月初当天仍算够到本月",(()=>{const t=F("taskById")("m1"),o=t.end;t.end="2026-09-01";
+  const r=F("goalVisibleThisMonth")(F("goalById")("gm1"),2026,8);t.end=o;return r;})(),true);
+eq("循环目标按窗口末天判定",F("goalVisibleThisMonth")(F("goalById")("gm3"),2026,8),true);
+eq("无任务的空目标照常显示",F("goalVisibleThisMonth")(F("goalById")("gm4"),2026,8),true);
+F("state").view="day";
+F("renderAll")();
+eq("日视图月卡藏旧显新",[
+  els["#view-day"].innerHTML.includes("上月目标"),
+  els["#view-day"].innerHTML.includes("跨月目标"),
+  els["#view-day"].innerHTML.includes("空目标")],[false,true,true]);
+F("state").view="month";
+F("renderAll")();
+eq("月视图月卡同一口径",els["#view-month"].innerHTML.includes("上月目标"),false);
+
 /* ================= 每月复盘（业务键=月份，一月一篇） =================
    这一层以前只读不写，"覆盖 / 排序 / 撤销位置 / 脏数据钳位"都是开放入口后才成立的行为 */
 console.log("\n== 每月复盘写入 ==");
